@@ -1,0 +1,6 @@
+{
+  "name": "Motoboy Express 3D",
+  "description": "Pilote sua moto pelas ruas da cidade entregando pedidos contra o tempo, ganhe moedas, personalize sua moto e baú, desbloqueie novos bairros e enfrente pistas escorregadias com chuva e neblina!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
