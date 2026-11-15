@@ -9,7 +9,7 @@ export const WEATHER_PRESETS: Record<WeatherType, WeatherConfig> = {
     description: 'Pista seca, nuvens leves e visibilidade perfeita.',
     icon: '☀️',
     gripMultiplier: 1.0,
-    fogDensity: 0.0025,
+    fogDensity: 0.00115,
     skyColor: 0x38bdf8,
     groundWetness: 0.0,
     rainIntensity: 0.0,
@@ -21,7 +21,7 @@ export const WEATHER_PRESETS: Record<WeatherType, WeatherConfig> = {
     description: 'Asfalto molhado! Reduza nas curvas ou instale pneus de chuva.',
     icon: '🌧️',
     gripMultiplier: 0.65,
-    fogDensity: 0.007,
+    fogDensity: 0.0038,
     skyColor: 0x334155,
     groundWetness: 0.85,
     rainIntensity: 0.7,
@@ -33,7 +33,7 @@ export const WEATHER_PRESETS: Record<WeatherType, WeatherConfig> = {
     description: 'Vento forte e chuva intensa com relâmpagos. Aderência reduzida!',
     icon: '⛈️',
     gripMultiplier: 0.5,
-    fogDensity: 0.01,
+    fogDensity: 0.0055,
     skyColor: 0x0f172a,
     groundWetness: 1.0,
     rainIntensity: 1.0,
@@ -45,7 +45,7 @@ export const WEATHER_PRESETS: Record<WeatherType, WeatherConfig> = {
     description: 'Alerta da Defesa Civil! Visibilidade quase nula (<20m), vendaval e aquaplanagem extrema. Reduza para <35 km/h ou busque abrigo!',
     icon: '🌪️',
     gripMultiplier: 0.15,
-    fogDensity: 0.038,
+    fogDensity: 0.028,
     skyColor: 0x020617,
     groundWetness: 1.0,
     rainIntensity: 1.0,
@@ -57,7 +57,7 @@ export const WEATHER_PRESETS: Record<WeatherType, WeatherConfig> = {
     description: 'Visibilidade reduzida. Siga o farol da moto e o GPS!',
     icon: '🌫️',
     gripMultiplier: 0.85,
-    fogDensity: 0.015,
+    fogDensity: 0.0095,
     skyColor: 0x475569,
     groundWetness: 0.3,
     rainIntensity: 0.0,
@@ -69,7 +69,7 @@ export const WEATHER_PRESETS: Record<WeatherType, WeatherConfig> = {
     description: 'Atmosfera quente de fim de tarde com reflexos vibrantes.',
     icon: '🌅',
     gripMultiplier: 0.95,
-    fogDensity: 0.0038,
+    fogDensity: 0.00155,
     skyColor: 0xf97316,
     groundWetness: 0.0,
     rainIntensity: 0.0,
@@ -233,115 +233,139 @@ export class WeatherSystem {
     this.applyAtmosphere(this.currentWeather.id, this.currentShift, this.currentSkyTheme);
   }
 
+  private viewDistance: number = 210;
+
   private initSkyDomeAndCelestials() {
-    // 1. Gradient Sky Dome Texture
+    // 1. Gradient Sky Dome Texture (Radius 135m < camera.far 150..250m, rendered with depthTest:false as infinite background)
     this.skyCanvas = document.createElement('canvas');
     this.skyCanvas.width = 64;
     this.skyCanvas.height = 256;
     this.skyTexture = new THREE.CanvasTexture(this.skyCanvas);
     this.skyTexture.colorSpace = THREE.SRGBColorSpace;
 
-    const skyGeo = new THREE.SphereGeometry(280, 28, 20);
+    const skyGeo = new THREE.SphereGeometry(135, 24, 16);
     const skyMat = new THREE.MeshBasicMaterial({
       map: this.skyTexture,
       side: THREE.BackSide,
       depthWrite: false,
+      depthTest: false,
       fog: false,
     });
     this.skyDomeMesh = new THREE.Mesh(skyGeo, skyMat);
+    this.skyDomeMesh.renderOrder = -1000;
+    this.skyDomeMesh.frustumCulled = false;
+    this.skyDomeMesh.userData.isDynamic = true;
     this.scene.add(this.skyDomeMesh);
 
-    // 2. Celestial Group (Sun & Moon orbiting the city)
+    // 2. Celestial Group (Sun & Moon rendered in background layer inside camera.far)
     this.celestialGroup = new THREE.Group();
+    this.celestialGroup.userData.isDynamic = true;
     this.scene.add(this.celestialGroup);
 
-    const sunGeo = new THREE.SphereGeometry(14, 20, 20);
+    const sunGeo = new THREE.SphereGeometry(6.5, 14, 14);
     const sunMat = new THREE.MeshBasicMaterial({
       color: 0xfef08a,
       fog: false,
+      depthWrite: false,
+      depthTest: false,
     });
     this.sunOrb = new THREE.Mesh(sunGeo, sunMat);
+    this.sunOrb.renderOrder = -980;
     const sunHalo = new THREE.Mesh(
-      new THREE.SphereGeometry(22, 20, 20),
+      new THREE.SphereGeometry(10.5, 14, 14),
       new THREE.MeshBasicMaterial({
         color: 0xf59e0b,
         transparent: true,
         opacity: 0.35,
         fog: false,
+        depthWrite: false,
+        depthTest: false,
       })
     );
+    sunHalo.renderOrder = -981;
     this.sunOrb.add(sunHalo);
     this.celestialGroup.add(this.sunOrb);
 
-    const moonGeo = new THREE.SphereGeometry(10.5, 20, 20);
+    const moonGeo = new THREE.SphereGeometry(5.2, 14, 14);
     const moonMat = new THREE.MeshBasicMaterial({
       color: 0xe0f2fe,
       fog: false,
+      depthWrite: false,
+      depthTest: false,
     });
     this.moonOrb = new THREE.Mesh(moonGeo, moonMat);
+    this.moonOrb.renderOrder = -980;
     const moonHalo = new THREE.Mesh(
-      new THREE.SphereGeometry(16.5, 18, 18),
+      new THREE.SphereGeometry(8.2, 12, 12),
       new THREE.MeshBasicMaterial({
         color: 0x38bdf8,
         transparent: true,
         opacity: 0.28,
         fog: false,
+        depthWrite: false,
+        depthTest: false,
       })
     );
+    moonHalo.renderOrder = -981;
     this.moonOrb.add(moonHalo);
     this.celestialGroup.add(this.moonOrb);
 
-    // 3. 3D Starfield (500 twinkling stars on upper sky hemisphere)
-    const starCount = this.rainCount < 500 ? 150 : 500;
+    // 3. 3D Starfield (Radius 128m < camera.far, rendered in background layer)
+    const starCount = this.rainCount < 500 ? 120 : 280;
     const starPositions = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
       const theta = Math.random() * Math.PI * 2;
-      const phi = Math.random() * Math.PI * 0.44; // Above horizon
-      const r = 255;
+      const phi = Math.random() * Math.PI * 0.44;
+      const r = 128;
       starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      starPositions[i * 3 + 1] = r * Math.cos(phi) + 15;
+      starPositions[i * 3 + 1] = r * Math.cos(phi) + 8;
       starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     }
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeo.computeBoundingSphere();
     const starMat = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: 2.2,
+      size: 2.0,
       transparent: true,
       opacity: 0,
       fog: false,
       depthWrite: false,
+      depthTest: false,
     });
     this.starsPoints = new THREE.Points(starGeo, starMat);
+    this.starsPoints.renderOrder = -990;
+    this.starsPoints.userData.isDynamic = true;
     this.scene.add(this.starsPoints);
 
-    // 4. Volumetric-style 3D Drifting Cloud Clusters
+    // 4. Low-poly Drifting Cloud Clusters (Shared geometry & material)
     this.cloudsGroup = new THREE.Group();
-    const cloudMat = new THREE.MeshStandardMaterial({
+    this.cloudsGroup.userData.isDynamic = true;
+    const cloudMat = new THREE.MeshLambertMaterial({
       color: 0xffffff,
-      roughness: 0.9,
-      metalness: 0.0,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.82,
+      depthWrite: false,
     });
+    const sharedPuffGeo = new THREE.SphereGeometry(5.2, 7, 6);
+    sharedPuffGeo.scale(1.3, 0.55, 1.0);
+    sharedPuffGeo.computeBoundingSphere();
 
-    const totalClusters = this.rainCount < 500 ? 6 : 16;
+    const totalClusters = this.rainCount < 500 ? 5 : 10;
     for (let c = 0; c < totalClusters; c++) {
       const cluster = new THREE.Group();
-      const puffCount = 4 + (c % 3);
+      cluster.userData.isDynamic = true;
+      const puffCount = 3 + (c % 2);
       for (let p = 0; p < puffCount; p++) {
-        const puff = new THREE.Mesh(
-          new THREE.SphereGeometry(4.5 + (p % 2) * 2.2, 10, 8),
-          cloudMat
-        );
-        puff.position.set((p - 1.5) * 4.2, (p % 2) * 1.4, (Math.random() - 0.5) * 3.5);
-        puff.scale.set(1.3, 0.58, 1.0);
+        const puff = new THREE.Mesh(sharedPuffGeo, cloudMat);
+        puff.position.set((p - 1) * 4.5, (p % 2) * 1.2, (Math.random() - 0.5) * 3.0);
+        puff.renderOrder = 2;
         cluster.add(puff);
       }
       cluster.position.set(
-        (Math.random() - 0.5) * 320,
-        72 + (c % 4) * 6,
-        (Math.random() - 0.5) * 320
+        (Math.random() - 0.5) * 240,
+        68 + (c % 3) * 5,
+        (Math.random() - 0.5) * 240
       );
       this.cloudsGroup.add(cluster);
     }
@@ -353,9 +377,9 @@ export class WeatherSystem {
     this.rainPositions = new Float32Array(this.rainCount * 6);
 
     for (let i = 0; i < this.rainCount; i++) {
-      const x = (Math.random() - 0.5) * 70;
-      const y = Math.random() * 36;
-      const z = (Math.random() - 0.5) * 70;
+      const x = (Math.random() - 0.5) * 60;
+      const y = Math.random() * 32;
+      const z = (Math.random() - 0.5) * 60;
       const idx = i * 6;
       this.rainPositions[idx] = x;
       this.rainPositions[idx + 1] = y;
@@ -366,6 +390,7 @@ export class WeatherSystem {
     }
 
     this.rainGeo.setAttribute('position', new THREE.BufferAttribute(this.rainPositions, 3));
+    this.rainGeo.computeBoundingSphere();
 
     const rainMat = new THREE.LineBasicMaterial({
       color: 0xbae6fd,
@@ -375,7 +400,62 @@ export class WeatherSystem {
     });
 
     this.rainLines = new THREE.LineSegments(this.rainGeo, rainMat);
+    this.rainLines.userData.isDynamic = true;
+    this.rainLines.renderOrder = 15;
     this.scene.add(this.rainLines);
+  }
+
+  public setViewDistance(farDist: number) {
+    if (Math.abs(this.viewDistance - farDist) < 2) return;
+    this.viewDistance = farDist;
+    this.updateHorizonFog();
+  }
+
+  private updateHorizonFog() {
+    const shiftInfo = TIME_SHIFT_PRESETS[this.currentShift];
+    let horizon = shiftInfo.horizonHex;
+    if (this.currentSkyTheme === 'tropical') horizon = '#a5f3fc';
+    else if (this.currentSkyTheme === 'golden_horizon') horizon = '#fde047';
+    else if (this.currentSkyTheme === 'cyber_neon') horizon = '#06b6d4';
+    else if (this.currentSkyTheme === 'starlight') horizon = '#1e1b4b';
+
+    if (this.currentWeather.id === 'rain') horizon = '#64748b';
+    else if (this.currentWeather.id === 'storm') horizon = '#1e293b';
+    else if (this.currentWeather.id === 'severe_storm') horizon = '#0b1120';
+    else if (this.currentWeather.id === 'fog') horizon = '#94a3b8';
+
+    const fogColor = new THREE.Color(this.currentShift === 'noite' ? '#02040a' : horizon);
+    this.scene.background = fogColor;
+
+    // Use linear THREE.Fog synced to camera.far so objects fade smoothly into the horizon before clipping
+    if (this.currentWeather.id === 'severe_storm') {
+      this.scene.fog = new THREE.Fog(fogColor.getHex(), 12, Math.min(65, this.viewDistance * 0.45));
+    } else if (this.currentWeather.id === 'fog') {
+      this.scene.fog = new THREE.Fog(fogColor.getHex(), 25, Math.min(115, this.viewDistance * 0.7));
+    } else if (this.currentWeather.id === 'storm' || this.currentshiftIsNight()) {
+      this.scene.fog = new THREE.Fog(
+        fogColor.getHex(),
+        this.viewDistance * 0.32,
+        this.viewDistance * 0.92
+      );
+    } else if (this.currentWeather.id === 'rain') {
+      this.scene.fog = new THREE.Fog(
+        fogColor.getHex(),
+        this.viewDistance * 0.38,
+        this.viewDistance * 0.94
+      );
+    } else {
+      // Sunny / Sunset: crisp near-field, smooth blend into horizon between 52% and 95% of camera.far
+      this.scene.fog = new THREE.Fog(
+        fogColor.getHex(),
+        this.viewDistance * 0.52,
+        this.viewDistance * 0.95
+      );
+    }
+  }
+
+  private currentshiftIsNight(): boolean {
+    return this.currentShift === 'noite';
   }
 
   public applyWeather(type: WeatherType) {
@@ -454,31 +534,24 @@ export class WeatherSystem {
     ctx.fillRect(0, 0, 64, 256);
     this.skyTexture.needsUpdate = true;
 
-    // Fog & Scene Background (Deep Darkness Fog when in Night Mode!)
-    const fogColor = new THREE.Color(shift === 'noite' ? '#02040a' : horizon);
-    const effectiveFogDensity =
-      shift === 'noite'
-        ? Math.max(this.currentWeather.fogDensity, 0.0155)
-        : this.currentWeather.fogDensity;
-    this.scene.fog = new THREE.FogExp2(fogColor.getHex(), effectiveFogDensity);
-    this.scene.background = fogColor;
+    this.updateHorizonFog();
 
-    // Position Sun & Moon according to shift
+    // Position Sun & Moon according to shift (within 115m radius so never clipped by camera.far)
     const isNightLike = shift === 'noite' || skyTheme === 'starlight' || skyTheme === 'cyber_neon';
     this.sunOrb.visible = !isNightLike && weatherType !== 'storm' && weatherType !== 'rain';
     this.moonOrb.visible = isNightLike && weatherType !== 'storm';
 
     if (shift === 'manha') {
-      this.sunOrb.position.set(160, 95, -140);
+      this.sunOrb.position.set(78, 46, -68);
       this.dirLight.position.set(80, 90, -60);
     } else if (shift === 'tarde') {
-      this.sunOrb.position.set(40, 195, -90);
+      this.sunOrb.position.set(22, 95, -45);
       this.dirLight.position.set(40, 120, 30);
     } else if (shift === 'entardecer') {
-      this.sunOrb.position.set(-175, 55, -130);
+      this.sunOrb.position.set(-85, 28, -62);
       this.dirLight.position.set(-90, 55, -50);
     } else {
-      this.moonOrb.position.set(-110, 145, -130);
+      this.moonOrb.position.set(-55, 72, -62);
       this.dirLight.position.set(-60, 100, -40);
     }
 
@@ -528,12 +601,19 @@ export class WeatherSystem {
     this.starsPoints.position.set(bikeX, 0, bikeZ);
     this.starsPoints.rotation.y += dt * 0.012;
 
-    // Drift 3D Clouds across the sky
+    // Drift 3D Clouds across the sky with wide 420m wrap around player X and Z
     const isSevere = this.currentWeather.id === 'severe_storm';
     this.cloudsGroup.children.forEach((cluster, idx) => {
       cluster.position.x += (isSevere ? 6.5 : 2.2 + (idx % 3) * 0.6) * dt;
-      if (cluster.position.x > bikeX + 180) {
-        cluster.position.x = bikeX - 180;
+      if (cluster.position.x > bikeX + 420) {
+        cluster.position.x -= 840;
+      } else if (cluster.position.x < bikeX - 420) {
+        cluster.position.x += 840;
+      }
+      if (cluster.position.z > bikeZ + 420) {
+        cluster.position.z -= 840;
+      } else if (cluster.position.z < bikeZ - 420) {
+        cluster.position.z += 840;
       }
     });
 

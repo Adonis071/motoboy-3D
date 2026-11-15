@@ -221,6 +221,43 @@ class SoundEngine {
     osc.stop(t + 0.46);
   }
 
+  public playOrderNotification() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+
+    const t = this.ctx.currentTime;
+    const osc1 = this.ctx.createOscillator();
+    const osc2 = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc1.type = 'triangle';
+    osc2.type = 'sine';
+
+    // Crisp smartphone app delivery alert chime (D6 -> A6 -> D7)
+    osc1.frequency.setValueAtTime(1174.66, t);
+    osc1.frequency.setValueAtTime(1760.0, t + 0.09);
+    osc1.frequency.setValueAtTime(2349.32, t + 0.18);
+
+    osc2.frequency.setValueAtTime(587.33, t);
+    osc2.frequency.setValueAtTime(880.0, t + 0.09);
+    osc2.frequency.setValueAtTime(1174.66, t + 0.18);
+
+    gain.gain.setValueAtTime(0.01, t);
+    gain.gain.linearRampToValueAtTime(0.22, t + 0.02);
+    gain.gain.setValueAtTime(0.2, t + 0.24);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc1.start(t);
+    osc2.start(t);
+    osc1.stop(t + 0.44);
+    osc2.stop(t + 0.44);
+  }
+
+
   public playDoorbell() {
     this.initCtx();
     if (!this.ctx || !this.masterGain || this.isMuted) return;

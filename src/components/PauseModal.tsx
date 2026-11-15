@@ -45,8 +45,8 @@ interface PauseModalProps {
   onToggleMute: () => void;
   isMuted: boolean;
   onRestart: () => void;
-  performanceMode: 'low' | 'high';
-  onChangePerformanceMode: (mode: 'low' | 'high') => void;
+  performanceMode: 'low' | 'medium' | 'high';
+  onChangePerformanceMode: (mode: 'low' | 'medium' | 'high') => void;
   currentOrder: DeliveryOrder | null;
   onOpenMissions: () => void;
   sensitivity: number;
@@ -322,36 +322,48 @@ export const PauseModal: React.FC<PauseModalProps> = ({
               </div>
             </div>
 
-            {/* INTEGRITY */}
+            {/* INTEGRITY & FUEL */}
             <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 flex flex-col gap-2.5">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-blue-400" />
                 <span className="text-[11px] font-black text-white uppercase tracking-wider">
-                  Integridade & Saúde
+                  Integridade, Saúde & Combustível
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2.5">
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between text-[10px] font-bold">
                     <span className="text-slate-400">Moto</span>
-                    <span className="text-emerald-400">{telemetry.bikeHealth}%</span>
+                    <span className="text-emerald-400">{telemetry.bikeHealth ?? 100}%</span>
                   </div>
                   <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-emerald-500 transition-all"
-                      style={{ width: `${telemetry.bikeHealth}%` }}
+                      style={{ width: `${telemetry.bikeHealth ?? 100}%` }}
                     />
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between text-[10px] font-bold">
                     <span className="text-slate-400">Piloto</span>
-                    <span className="text-emerald-400">{telemetry.playerHealth}%</span>
+                    <span className="text-emerald-400">{telemetry.playerHealth ?? 100}%</span>
                   </div>
                   <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-emerald-500 transition-all"
-                      style={{ width: `${telemetry.playerHealth}%` }}
+                      style={{ width: `${telemetry.playerHealth ?? 100}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between text-[10px] font-bold">
+                    <span className="text-slate-400">Tanque</span>
+                    <span className="text-amber-400">{telemetry.fuelPct ?? 100}%</span>
+                  </div>
+                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 transition-all"
+                      style={{ width: `${telemetry.fuelPct ?? 100}%` }}
                     />
                   </div>
                 </div>
@@ -468,29 +480,50 @@ export const PauseModal: React.FC<PauseModalProps> = ({
               </div>
             </div>
 
-            {/* Quality & Sensitivity */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => onChangePerformanceMode(performanceMode === 'high' ? 'low' : 'high')}
-                className="py-1.5 px-2.5 rounded-xl border border-slate-700 bg-slate-900 text-[10px] font-black text-slate-300 cursor-pointer"
-              >
-                Gráficos: {performanceMode === 'high' ? 'ALTA (6GB+)' : 'LEVE (4GB)'}
-              </button>
-              <button
-                onClick={onToggleAutoCycle}
-                className={`py-1.5 px-2.5 rounded-xl border text-[10px] font-black cursor-pointer ${
-                  autoDynamicCycle
-                    ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                    : 'bg-slate-900 border-slate-800 text-slate-400'
-                }`}
-              >
-                Ciclo Clima: {autoDynamicCycle ? 'AUTO' : 'FIXO'}
-              </button>
+            {/* Graphics Quality (Baixa / Média / Alta) & Weather Cycle */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-bold uppercase text-slate-400">
+                  Qualidade Gráfica (60 FPS)
+                </span>
+                <button
+                  onClick={onToggleAutoCycle}
+                  className={`py-0.5 px-2 rounded-lg border text-[9px] font-black cursor-pointer ${
+                    autoDynamicCycle
+                      ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  Ciclo Clima: {autoDynamicCycle ? 'AUTO' : 'FIXO'}
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'low', label: 'BAIXA (Leve)' },
+                    { id: 'medium', label: 'MÉDIA (Fluida)' },
+                    { id: 'high', label: 'ALTA (Ultra)' },
+                  ] as const
+                ).map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onChangePerformanceMode(opt.id)}
+                    className={`py-1.5 px-2 rounded-xl border text-[9px] font-black cursor-pointer transition-all ${
+                      performanceMode === opt.id
+                        ? 'bg-emerald-500 border-white text-slate-950 shadow'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className="text-[9px] font-bold uppercase text-slate-400">
-                Sensibilidade ({Math.round(sensitivity * 100)}%)
+                Sensibilidade da Direção ({Math.round(sensitivity * 100)}%)
               </span>
               <input
                 type="range"

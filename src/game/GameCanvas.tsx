@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -23,7 +23,10 @@ import {
   createDeliveryBeacon,
   updateDeliveryBeaconColor,
   createTrunkLogoTexture,
+  createBikeDecalTexture,
+  populateHelmetStyleExtras,
   createCharacterHealthBar,
+  getRiderOutfitColors,
   MotorcycleGroup,
   OnFootMotoboyGroup,
   OverheadHealthBar,
@@ -39,7 +42,6 @@ import { buildCityShelters3D, checkPlayerInShelter } from './shelters';
 import { buildCityAdvancedBuildings, InteractiveAnimal } from './cityBuildings';
 import { DynamicLODManager } from './lodManager';
 import { AirportManager } from './airportManager';
-import { CinematicCameraManager } from './cinematicManager';
 
 /**
  * Custom Post-Processing Shader for Nitro Speed-Warp:
@@ -203,6 +205,8 @@ interface GameCanvasProps {
     source?: 'car' | 'police' | 'pedestrian' | 'bandit_shot' | 'car_on_foot'
   ) => void;
   repairTrigger?: number;
+  refuelTrigger?: number;
+  initialFuel?: number;
   onGrauScore: (points: number, combo: number) => void;
   onTelemetryUpdate: (data: {
     speedKmH: number;
@@ -212,6 +216,8 @@ interface GameCanvasProps {
     isNitroActive: boolean;
     bikeHealth: number;
     playerHealth: number;
+    fuelPct: number;
+    isSkidding: boolean;
     policeWantedSeconds: number;
     policeOfficersChasingOnFoot: boolean;
     isWheelie: boolean;
@@ -233,7 +239,7 @@ interface GameCanvasProps {
     isSevereStorm: boolean;
     isAquaplaning: boolean;
   }) => void;
-  performanceMode: 'low' | 'high';
+  performanceMode: 'low' | 'medium' | 'high';
   headlightOn: boolean;
   isTrafficJam?: boolean;
   inputsRef: React.MutableRefObject<InputState>;
@@ -242,6 +248,7 @@ interface GameCanvasProps {
 // Pre-allocated math objects to avoid GC in animation loop
 const _camTarget = new THREE.Vector3();
 const _camOffset = new THREE.Vector3();
+const _lookAtPos = new THREE.Vector3();
 const _dirToTarget = new THREE.Vector3();
 const _offMapPos = new THREE.Vector3(9999, 0, 9999);
 
@@ -284,6 +291,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onPassTrainingRing,
   onCarCrash,
   repairTrigger,
+  refuelTrigger,
+  initialFuel,
   onGrauScore,
   onTelemetryUpdate,
   performanceMode,
@@ -294,6 +303,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const composerRef = useRef<EffectComposer | null>(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const showDebugPanelRef = useRef(false);
+  showDebugPanelRef.current = showDebugPanel;
+  const debugMetricsDomRef = useRef<HTMLPreElement>(null);
 
   // References for live update without recreating scene
   const isPlayingRef = useRef(isPlaying);
@@ -434,10 +447,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     })();
 
-    // 2. Renderer setup (Enhanced Low Resolution Mode: MSAA enabled + 1.35x DPR cap + PBR IBL + 512px Shadows)
+    // 2. Renderer setup (3-Tier Graphics Quality: Baixa / Média / Alta)
     const isLow = performanceMode === 'low';
+    const isMedium = performanceMode === 'medium';
+    const isMobileScreen = width < 900 || 'ontouchstart' in window;
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isSoftwareGl,
+      antialias: !isSoftwareGl && !isLow && (!isMobileScreen || performanceMode === 'high'),
       powerPreference: 'high-performance',
       alpha: false,
     });
@@ -445,14 +460,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     renderer.setSize(width, height);
     const targetPixelRatio =
       performanceMode === 'low'
-        ? Math.min(window.devicePixelRatio, 1.35)
-        : Math.min(window.devicePixelRatio, 2);
-    renderer.setPixelRatio(isSoftwareGl ? 1 : targetPixelRatio);
+        ? 1.0
+        : isMedium
+        ? Math.min(window.devicePixelRatio, 1.25)
+        : Math.min(window.devicePixelRatio, 1.5);
+    renderer.setPixelRatio(isSoftwareGl ? 1.0 : targetPixelRatio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.28;
-    renderer.shadowMap.enabled = !isSoftwareGl;
-    renderer.shadowMap.type = isLow ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = !isSoftwareGl && !isLow;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
 
     container.appendChild(renderer.domElement);
 
@@ -460,14 +477,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x38bdf8);
 
-    if (!isSoftwareGl) {
+    if (!isSoftwareGl && !isLow) {
       const pmrem = new THREE.PMREMGenerator(renderer);
       scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
       pmrem.dispose();
     }
 
-    // 4. Cameras + 3D Volumetric Nitro Warp Streaks Tunnel + Post-Processing Composer
-    const camera = new THREE.PerspectiveCamera(65, width / height, 0.3, 420);
+    // 4. Cameras (Far plane 165m-250m hidden smoothly with Horizon Fog) + 3D Volumetric Nitro Warp Streaks
+    const initialCameraFar = isLow ? 165 : isMedium ? 210 : 250;
+    const camera = new THREE.PerspectiveCamera(65, width / height, 0.4, initialCameraFar);
     camera.position.set(0, 4, -7);
     scene.add(camera);
 
@@ -516,10 +534,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       });
     }
 
-    // Post-Processing Composer for Dynamic HDR Grade, Radial Motion Blur & Background Defocus (High mode)
+    // Post-Processing Composer disabled on mobile and Low/Medium modes to save full-screen shader bandwidth
     let composer: EffectComposer | null = null;
     let nitroShaderPass: ShaderPass | null = null;
-    if (!isSoftwareGl && !isLow) {
+    if (!isSoftwareGl && !isLow && !isMobileScreen && performanceMode === 'high') {
       composer = new EffectComposer(renderer);
       const renderPass = new RenderPass(scene, camera);
       composer.addPass(renderPass);
@@ -532,37 +550,39 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       composerRef.current = composer;
     }
 
-    renderer.shadowMap.enabled = !isSoftwareGl;
+    renderer.shadowMap.enabled = !isSoftwareGl && !isLow;
 
-    // Effect on performance mode change
+    // Effect on performance mode change (strict 1.0 - 1.5 pixelRatio cap)
     const updateQuality = () => {
       const scale =
         performanceMode === 'low'
-          ? Math.min(window.devicePixelRatio, 1.35)
-          : Math.min(window.devicePixelRatio, 2);
-      renderer.setPixelRatio(isSoftwareGl ? 1 : scale);
+          ? 1.0
+          : performanceMode === 'medium'
+          ? Math.min(window.devicePixelRatio, 1.25)
+          : Math.min(window.devicePixelRatio, 1.5);
+      renderer.setPixelRatio(isSoftwareGl ? 1.0 : scale);
     };
     updateQuality();
 
-    // 5. Lighting Rig
+    // 5. Lighting Rig (Low-resolution tight shadow frustum around motorcycle, disabled in Low quality)
     const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x1e293b, 1.25);
     scene.add(hemiLight);
 
     const sunLight = new THREE.DirectionalLight(0xfffbeb, 2.65);
     sunLight.position.set(60, 100, 40);
-    sunLight.castShadow = !isSoftwareGl;
-    if (!isSoftwareGl) {
-      const mapRes = isLow ? 512 : 1024;
+    sunLight.castShadow = !isSoftwareGl && !isLow;
+    if (!isSoftwareGl && !isLow) {
+      const mapRes = isMobileScreen || isMedium ? 512 : 1024;
       sunLight.shadow.mapSize.width = mapRes;
       sunLight.shadow.mapSize.height = mapRes;
-      sunLight.shadow.camera.near = 10;
-      sunLight.shadow.camera.far = 260;
-      const d = isLow ? 70 : 85;
+      sunLight.shadow.camera.near = 8;
+      sunLight.shadow.camera.far = 125;
+      const d = isMedium ? 30 : 42;
       sunLight.shadow.camera.left = -d;
       sunLight.shadow.camera.right = d;
       sunLight.shadow.camera.top = d;
       sunLight.shadow.camera.bottom = -d;
-      sunLight.shadow.bias = -0.0003;
+      sunLight.shadow.bias = -0.0005;
     }
     scene.add(sunLight);
 
@@ -580,14 +600,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // 6.3 International Airport & Dynamic Aviation System (Runways, Terminal, Tower, Airliners taking off and landing)
     const airport = new AirportManager(scene, isLow);
 
-    // 6.4 Automatic Cinematic Camera Manager (Fly-bys at landmarks like Bridges, Plazas, Airports, Stadiums)
-    const cinematicCam = new CinematicCameraManager();
-
-    // 6.3 Dynamic Level of Detail (LOD) & Adaptive FPS Governor (indexes static city structures & builds horizon proxies)
+    // 6.4 Dynamic Level of Detail (LOD) & Adaptive FPS Governor (indexes static city structures & builds horizon proxies)
     const basePixelRatio =
       performanceMode === 'low'
-        ? Math.min(window.devicePixelRatio, 1.35)
-        : Math.min(window.devicePixelRatio, 2);
+        ? 1.0
+        : performanceMode === 'medium'
+        ? Math.min(window.devicePixelRatio, 1.25)
+        : Math.min(window.devicePixelRatio, 1.5);
     const lodManager = new DynamicLODManager(scene, performanceMode, isSoftwareGl, basePixelRatio);
     const excludedFromLod = new Set<THREE.Object3D>([
       city.groundMesh,
@@ -600,8 +619,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const traffic = new TrafficManager(scene, performanceMode);
     trafficRef.current = traffic;
 
-    // 8. Custom 3D Sky Dome, Orbiting Sun/Moon, Clouds & Weather System
+    // 8. Custom 3D Sky Dome, Orbiting Sun/Moon, Clouds & Weather System (synced to camera.far fog)
     const weather = new WeatherSystem(scene, sunLight, hemiLight, weatherType, timeShift, skyTheme, isLow);
+    weather.setViewDistance(initialCameraFar);
     weatherSystemRef.current = weather;
 
     // 9. Hero Motorcycle Model + On-Foot Motoboy Model + Overhead 3D Player Life Bar + Taunt Bubble
@@ -664,8 +684,80 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(beacon);
     beaconRef.current = beacon;
 
+    // 11.5 3D Particle Systems: Nitro Sparks, Braking Skid Smoke/Sparks & Delivery Celebration Confetti
+    const worldParticles: Array<{
+      mesh: THREE.Mesh;
+      vx: number;
+      vy: number;
+      vz: number;
+      life: number;
+      maxLife: number;
+      mat: THREE.MeshBasicMaterial;
+    }> = [];
+    const particleGeo = new THREE.SphereGeometry(0.11, 6, 6);
+    const particleGroup = new THREE.Group();
+    scene.add(particleGroup);
+
+    const emitParticle = (
+      x: number,
+      y: number,
+      z: number,
+      vx: number,
+      vy: number,
+      vz: number,
+      colorHex: number,
+      maxLife: number,
+      scale: number = 1.0
+    ) => {
+      if (worldParticles.length > (isLow ? 28 : 55)) return;
+      const mat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(particleGeo, mat);
+      mesh.position.set(x, y, z);
+      mesh.scale.setScalar(scale);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 12;
+      particleGroup.add(mesh);
+      worldParticles.push({ mesh, vx, vy, vz, life: maxLife, maxLife, mat });
+    };
+
+    // 11.6 Pre-allocated Tire Skid Marks Pool on Asphalt (fades out over 4.5s)
+    const skidMarkGeo = new THREE.PlaneGeometry(0.18, 0.78);
+    skidMarkGeo.rotateX(-Math.PI / 2);
+    const skidMarksPool: Array<{
+      mesh: THREE.Mesh;
+      mat: THREE.MeshBasicMaterial;
+      life: number;
+      maxLife: number;
+    }> = [];
+    const maxSkidMarks = isLow ? 16 : 28;
+    for (let s = 0; s < maxSkidMarks; s++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x090d16,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      });
+      const mesh = new THREE.Mesh(skidMarkGeo, mat);
+      mesh.visible = false;
+      mesh.renderOrder = 3;
+      scene.add(mesh);
+      skidMarksPool.push({ mesh, mat, life: 0, maxLife: 4.5 });
+    }
+    let nextSkidIdx = 0;
+    let lastSkidSpawnTime = 0;
+
     // Physics (Preserve position across quality toggle if already playing)
     const physics = physicsRef.current;
+    if (initialFuel !== undefined && physics.fuel === 100) {
+      physics.fuel = initialFuel;
+    }
     if (physics.position.x === 0 && physics.position.z === 0) {
       physics.position.set(-67.2, 0, -28);
       physics.heading = Math.PI; // Facing North along Avenida Oeste
@@ -673,17 +765,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       physics.parkedBikeHeading = physics.heading;
     }
 
-    // Resize handler
+    // Resize handler (including mobile visualViewport dynamic address/navigation bar changes)
     const handleResize = () => {
       if (!mountRef.current) return;
-      const w = mountRef.current.clientWidth;
-      const h = mountRef.current.clientHeight;
+      const w = mountRef.current.clientWidth || window.innerWidth;
+      const h = mountRef.current.clientHeight || window.visualViewport?.height || window.innerHeight;
+      if (w <= 0 || h <= 0) return;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
       composer?.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('resize', handleResize);
 
     // Sound start on initial play
     sound.startEngine(customization.exhaustType);
@@ -693,6 +787,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let lastTelemetryTime = 0;
     let lastBeaconPickupState: boolean | null = null;
     let lastRoadNightState: boolean | null = null;
+    let lastRoadWetState: boolean | null = null;
     let nitroEffectIntensity = 0;
     const clock = new THREE.Clock();
 
@@ -736,6 +831,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         renderer
       );
 
+      // Dynamic View Distance & Fog Horizon Sync (automatically tightens when FPS dips)
+      if (Math.abs(camera.far - lodManager.targetCameraFar) > 3) {
+        camera.far = lodManager.targetCameraFar;
+        weather.setViewDistance(lodManager.targetCameraFar);
+      }
+
       // Update city dynamic elements
       city.animatables.forEach(a => a.update(dt, elapsedTime));
       if (weatherSystemRef.current) {
@@ -745,6 +846,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (lastRoadNightState !== isNight) {
           lastRoadNightState = isNight;
           city.updateRoadEmissive(isNight);
+        }
+        const curWeather = weatherTypeRef.current;
+        const isWet =
+          curWeather === 'rain' || curWeather === 'storm' || curWeather === 'severe_storm';
+        if (lastRoadWetState !== isWet) {
+          lastRoadWetState = isWet;
+          city.updateRoadWetness(isWet ? 1.0 : 0.0);
         }
 
         // Update 3D Night Ghosts in Darkness Mode (shift === 'noite')
@@ -866,23 +974,40 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         );
 
-        // Update 3D Farm Animals (with Dynamic LOD distance culling & adaptive frame decimation)
-        const animalCullDistSq = (115 * lodManager.lodDistanceScale) * (115 * lodManager.lodDistanceScale);
+        // Update 3D Farm Animals (with world-space hysteresis distance loading matched to fog horizon)
+        const animalLoadDistSq = (78 * lodManager.lodDistanceScale) * (78 * lodManager.lodDistanceScale);
+        const animalUnloadDistSq = (95 * lodManager.lodDistanceScale) * (95 * lodManager.lodDistanceScale);
         const runSecondaryAnim = lodManager.shouldUpdateSecondaryAnim();
         for (let i = 0; i < advancedCity.animals.length; i++) {
           const anim = advancedCity.animals[i];
-          const adx = anim.mesh.position.x - physics.position.x;
-          const adz = anim.mesh.position.z - physics.position.z;
-          if (adx * adx + adz * adz > animalCullDistSq) {
+          const adx = anim.x - physics.position.x;
+          const adz = anim.z - physics.position.z;
+          const aThresholdSq = anim.mesh.visible ? animalUnloadDistSq : animalLoadDistSq;
+          if (adx * adx + adz * adz > aThresholdSq) {
             anim.mesh.visible = false;
             continue;
           }
-          anim.mesh.visible = true;
+          if (!anim.mesh.visible) {
+            anim.mesh.visible = true;
+            anim.mesh.userData.visFade = 0.0;
+          }
+          if ((anim.mesh.userData.visFade ?? 1.0) < 1.0) {
+            const nextFade = Math.min(1.0, (anim.mesh.userData.visFade ?? 0) + dt / 0.38);
+            anim.mesh.userData.visFade = nextFade;
+            const s = 0.85 + 0.15 * nextFade;
+            anim.mesh.scale.set(s, 0.8 + 0.2 * nextFade, s);
+          } else {
+            anim.mesh.scale.set(1, 1, 1);
+          }
           if (runSecondaryAnim) {
             const effDt = dt * lodManager.animDecimation;
             anim.angle += effDt * anim.speed * 0.4;
-            anim.mesh.position.x += Math.cos(anim.angle) * effDt * anim.speed;
-            anim.mesh.position.z += Math.sin(anim.angle) * effDt * anim.speed;
+            const stepX = Math.cos(anim.angle) * effDt * anim.speed;
+            const stepZ = Math.sin(anim.angle) * effDt * anim.speed;
+            anim.mesh.position.x += stepX;
+            anim.mesh.position.z += stepZ;
+            anim.x += stepX;
+            anim.z += stepZ;
             anim.mesh.rotation.y = anim.angle + Math.PI / 2;
           }
         }
@@ -967,6 +1092,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             physics.crashCooldown = 0.85;
             shakeIntensityRef.current = 0.95;
             sound.playCrash();
+            // Emit orange/yellow metallic collision sparks burst!
+            for (let sp = 0; sp < 10; sp++) {
+              const ang = Math.random() * Math.PI * 2;
+              const spd = 2.5 + Math.random() * 5.0;
+              emitParticle(
+                physics.position.x + (Math.random() - 0.5) * 0.5,
+                0.55 + Math.random() * 0.4,
+                physics.position.z + (Math.random() - 0.5) * 0.5,
+                Math.cos(ang) * spd,
+                1.6 + Math.random() * 2.5,
+                Math.sin(ang) * spd,
+                sp % 2 === 0 ? 0xf97316 : 0xfacc15,
+                0.32,
+                0.75
+              );
+            }
             if (isPolice) {
               sound.playPoliceSiren();
               onPolicePursuitEventRef.current?.();
@@ -1014,13 +1155,44 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           bikeGroup.riderMesh.visible = bandits.isRidingPlayerBike;
         }
 
-        // Show and animate On-Foot Motoboy (including Jump height & Punch/Push arm strikes)
+        // Show and animate On-Foot Motoboy (Walk vs Run, Jump, Punch/Push & Package Delivery Animation)
         onFootGroup.visible = true;
         onFootGroup.position.copy(physics.position);
         onFootGroup.rotation.y = physics.heading;
-        const swing = Math.abs(physics.speed) > 0.3 ? Math.sin(physics.walkCycle) * 0.65 : 0;
+        const absFootSpeed = Math.abs(physics.speed);
+        const isRunning = absFootSpeed > 4.2;
+        const swingAmp = absFootSpeed > 0.3 ? (isRunning ? 0.82 : 0.55) : 0;
+        const swing = Math.sin(physics.walkCycle) * swingAmp;
         onFootGroup.leftLeg.rotation.x = physics.isJumping ? 0.45 : swing;
         onFootGroup.rightLeg.rotation.x = physics.isJumping ? -0.35 : -swing;
+
+        if (onFootGroup.torsoGroup) {
+          const targetTorsoLean = isRunning ? 0.22 : absFootSpeed > 0.3 ? 0.08 : 0;
+          onFootGroup.torsoGroup.rotation.x = THREE.MathUtils.damp(
+            onFootGroup.torsoGroup.rotation.x,
+            targetTorsoLean,
+            10,
+            dt
+          );
+        }
+        if (onFootGroup.backpackMesh) {
+          onFootGroup.backpackMesh.rotation.z =
+            absFootSpeed > 0.3 ? Math.sin(physics.walkCycle * 2) * 0.05 : 0;
+        }
+
+        const activeOrd = currentOrderRef.current;
+        const isDeliveringNearCustomer = Boolean(
+          gameModeRef.current === 'career' &&
+            activeOrd &&
+            activeOrd.state === 'to_deliver' &&
+            Math.hypot(
+              physics.position.x - activeOrd.customerPos.x,
+              physics.position.z - activeOrd.customerPos.z
+            ) < 12
+        );
+        if (onFootGroup.deliveryPackageMesh) {
+          onFootGroup.deliveryPackageMesh.visible = isDeliveringNearCustomer;
+        }
 
         if (physics.meleeAction === 'punch') {
           onFootGroup.rightArm.rotation.x = -1.55; // Right hook / punch forward
@@ -1028,9 +1200,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         } else if (physics.meleeAction === 'push') {
           onFootGroup.rightArm.rotation.x = -1.45; // Two-handed shove forward
           onFootGroup.leftArm.rotation.x = -1.45;
+        } else if (isDeliveringNearCustomer) {
+          // Hold out the delivery package with both hands toward the customer!
+          onFootGroup.leftArm.rotation.x = -1.05 + swing * 0.15;
+          onFootGroup.rightArm.rotation.x = -1.05 - swing * 0.15;
         } else {
-          onFootGroup.leftArm.rotation.x = -swing * 0.7;
-          onFootGroup.rightArm.rotation.x = swing * 0.7;
+          onFootGroup.leftArm.rotation.x = -swing * 0.75;
+          onFootGroup.rightArm.rotation.x = swing * 0.75;
         }
       } else {
         onFootGroup.visible = false;
@@ -1041,6 +1217,50 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         bikeGroup.rotation.y = physics.heading;
         bikeGroup.rotation.z = physics.leanAngle;
         bikeGroup.rotation.x = -physics.pitchAngle;
+
+        // Rider animations on motorcycle:
+        // 1) Torso leans dynamically into curves & slightly forward at high speed
+        const speedNorm = Math.min(1, Math.abs(physics.speed) / 30);
+        if (bikeGroup.riderTorso) {
+          bikeGroup.riderTorso.rotation.z = THREE.MathUtils.damp(
+            bikeGroup.riderTorso.rotation.z,
+            -physics.leanAngle * 0.42,
+            10,
+            dt
+          );
+          bikeGroup.riderTorso.rotation.x = THREE.MathUtils.damp(
+            bikeGroup.riderTorso.rotation.x,
+            0.12 + speedNorm * 0.14,
+            8,
+            dt
+          );
+        }
+        // 2) Left foot rests on the asphalt when stopped; returns to footpeg when moving
+        const isStopped = Math.abs(physics.speed) < 0.85 && !physics.isWheelie;
+        if (bikeGroup.riderLeftLeg) {
+          bikeGroup.riderLeftLeg.rotation.z = THREE.MathUtils.damp(
+            bikeGroup.riderLeftLeg.rotation.z,
+            isStopped ? -0.28 : 0,
+            9,
+            dt
+          );
+          bikeGroup.riderLeftLeg.rotation.x = THREE.MathUtils.damp(
+            bikeGroup.riderLeftLeg.rotation.x,
+            isStopped ? 0.28 : 0,
+            9,
+            dt
+          );
+        }
+        // 3) Articulated arms counter-steer subtly on the handlebars
+        if (bikeGroup.riderLeftArm && bikeGroup.riderRightArm) {
+          bikeGroup.riderLeftArm.rotation.z = physics.steerAngle * 0.18;
+          bikeGroup.riderRightArm.rotation.z = physics.steerAngle * 0.18;
+        }
+        // 4) Thermal backpack sways gently with road vibration & curves
+        if (bikeGroup.backpackMesh) {
+          bikeGroup.backpackMesh.rotation.z =
+            Math.sin(elapsedTime * 11) * 0.032 * speedNorm - physics.leanAngle * 0.12;
+        }
       }
 
       // Keep 3D overhead player status billboard hidden so the center of the viewport stays unobstructed (HUD pill shows health & speed)
@@ -1074,6 +1294,122 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         bikeGroup.nitroFlameMesh.scale.setScalar(
           physics.isNitroActive ? 0.9 + Math.sin(elapsedTime * 50) * 0.25 : 0.01
         );
+      }
+
+      // Emit 3D Nitro Sparks, Exhaust Smoke, Braking Skid Smoke/Sparks & Tire Skid Marks on Asphalt
+      if (!physics.isOnFoot) {
+        const rearX = physics.position.x - Math.sin(physics.heading) * 0.9;
+        const rearZ = physics.position.z - Math.cos(physics.heading) * 0.9;
+
+        // Subtle exhaust smoke puffs when accelerating
+        if (inputsRef.current.forward && !physics.isNitroActive && Math.random() < 0.22) {
+          emitParticle(
+            rearX - Math.sin(physics.heading) * 0.15 + Math.cos(physics.heading) * 0.22,
+            0.26,
+            rearZ - Math.cos(physics.heading) * 0.15 - Math.sin(physics.heading) * 0.22,
+            -Math.sin(physics.heading) * 1.8 + (Math.random() - 0.5) * 0.5,
+            0.45 + Math.random() * 0.4,
+            -Math.cos(physics.heading) * 1.8 + (Math.random() - 0.5) * 0.5,
+            0x94a3b8,
+            0.36,
+            0.65
+          );
+        }
+
+        if (physics.isNitroActive && Math.random() < 0.75) {
+          emitParticle(
+            rearX + (Math.random() - 0.5) * 0.25,
+            0.28 + Math.random() * 0.15,
+            rearZ + (Math.random() - 0.5) * 0.25,
+            -Math.sin(physics.heading) * (8 + Math.random() * 5) + (Math.random() - 0.5) * 2,
+            0.8 + Math.random() * 1.4,
+            -Math.cos(physics.heading) * (8 + Math.random() * 5) + (Math.random() - 0.5) * 2,
+            Math.random() > 0.35 ? 0x00f3ff : 0xf59e0b,
+            0.32,
+            0.85
+          );
+        }
+
+        if (physics.isSkidding && Math.abs(physics.speed) > 4.2) {
+          // Spawn Tire Skid Mark on the asphalt behind rear tire every 55ms
+          if (elapsedTime - lastSkidSpawnTime > 0.055) {
+            lastSkidSpawnTime = elapsedTime;
+            const mark = skidMarksPool[nextSkidIdx];
+            nextSkidIdx = (nextSkidIdx + 1) % skidMarksPool.length;
+            mark.mesh.position.set(rearX, 0.044, rearZ);
+            mark.mesh.rotation.y = physics.heading;
+            mark.life = mark.maxLife;
+            mark.mat.opacity = 0.65;
+            mark.mesh.visible = true;
+          }
+
+          if (Math.random() < 0.85) {
+            // Tire skid smoke puff + occasional orange friction spark
+            const isSpark = Math.random() < 0.28;
+            emitParticle(
+              rearX + (Math.random() - 0.5) * 0.35,
+              0.12 + Math.random() * 0.1,
+              rearZ + (Math.random() - 0.5) * 0.35,
+              (Math.random() - 0.5) * 2.4,
+              0.9 + Math.random() * 1.5,
+              (Math.random() - 0.5) * 2.4,
+              isSpark ? 0xf97316 : 0xcbd5e1,
+              isSpark ? 0.25 : 0.48,
+              isSpark ? 0.65 : 1.45
+            );
+          }
+        }
+      }
+
+      // Ground raindrop splash puffs when raining
+      if (
+        !isLowPerf &&
+        (weatherTypeRef.current === 'rain' ||
+          weatherTypeRef.current === 'storm' ||
+          weatherTypeRef.current === 'severe_storm') &&
+        Math.random() < 0.45
+      ) {
+        emitParticle(
+          physics.position.x + (Math.random() - 0.5) * 14,
+          0.08,
+          physics.position.z + (Math.random() - 0.5) * 14,
+          (Math.random() - 0.5) * 0.6,
+          0.9 + Math.random() * 0.8,
+          (Math.random() - 0.5) * 0.6,
+          0xbae6fd,
+          0.18,
+          0.45
+        );
+      }
+
+      // Update & fade Tire Skid Marks on the asphalt (disappear after ~4.5 seconds)
+      for (let sIdx = 0; sIdx < skidMarksPool.length; sIdx++) {
+        const mark = skidMarksPool[sIdx];
+        if (!mark.mesh.visible) continue;
+        mark.life -= dt;
+        if (mark.life <= 0) {
+          mark.mesh.visible = false;
+          mark.mat.opacity = 0;
+        } else {
+          mark.mat.opacity = (mark.life / mark.maxLife) * 0.65;
+        }
+      }
+
+      // Update active 3D World Particles
+      for (let pIdx = worldParticles.length - 1; pIdx >= 0; pIdx--) {
+        const p = worldParticles[pIdx];
+        p.life -= dt;
+        if (p.life <= 0) {
+          particleGroup.remove(p.mesh);
+          p.mat.dispose();
+          worldParticles.splice(pIdx, 1);
+          continue;
+        }
+        p.mesh.position.x += p.vx * dt;
+        p.mesh.position.y += p.vy * dt;
+        p.mesh.position.z += p.vz * dt;
+        p.mat.opacity = Math.max(0, (p.life / p.maxLife) * 0.85);
+        p.mesh.scale.multiplyScalar(1 + dt * 1.2);
       }
 
       // 3D Engine Damage Smoke Puffs when bikeHealth < 70%
@@ -1137,6 +1473,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             rival.hasStolenPackage = false;
             sound.playDoorbell();
             sound.playCash();
+            // Emit celebratory 3D confetti burst around the player on completed delivery!
+            const burstColors = [0x10b981, 0xf59e0b, 0x38bdf8, 0xfacc15];
+            for (let b = 0; b < 22; b++) {
+              const angle = (b / 22) * Math.PI * 2;
+              const spd = 3.5 + Math.random() * 4.5;
+              emitParticle(
+                physics.position.x,
+                1.4 + Math.random() * 0.5,
+                physics.position.z,
+                Math.cos(angle) * spd,
+                3.5 + Math.random() * 3.5,
+                Math.sin(angle) * spd,
+                burstColors[b % burstColors.length],
+                0.85,
+                1.15
+              );
+            }
             onOrderDeliverRef.current();
           }
         }
@@ -1200,6 +1553,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         );
 
         const currentShelter = checkPlayerInShelter(physics.position.x, physics.position.z);
+        if (currentShelter.isSheltered && currentShelter.shelter?.type === 'gas_station') {
+          physics.fuel = Math.min(100, physics.fuel + 12);
+        }
 
         onTelemetryUpdateRef.current({
           speedKmH,
@@ -1209,6 +1565,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           isNitroActive: physics.isNitroActive,
           bikeHealth: Math.round(physics.bikeHealth),
           playerHealth: Math.round(physics.playerHealth),
+          fuelPct: Math.round(physics.fuel),
+          isSkidding: physics.isSkidding,
           policeWantedSeconds: Math.ceil(traffic.wantedTimer),
           policeOfficersChasingOnFoot: traffic.hasOfficersChasingOnFoot,
           isWheelie: physics.isWheelie,
@@ -1268,12 +1626,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         nitroTunnelGroup.visible = false;
       }
 
-      // AUTOMATIC CINEMATIC CAMERA OVERRIDE
-      const controlsTarget = physics.position.clone();
-      const isCinematicActive = cinematicCam.update(dt, physics.position, camera, controlsTarget);
-
-      if (!isCinematicActive) {
-        // DYNAMIC MULTI-MODE CAMERA SYSTEM (Dynamic Action / Close Chase / 1st Person Helmet / Helicopter)
+      // PLAYER-LOCKED MULTI-MODE CAMERA SYSTEM (Dynamic Action / Close Chase / 1st Person Helmet — No Panoramic Override)
+      {
         const isPortrait = camera.aspect < 1.0;
         const mode = cameraModeRef.current;
         const speedRatio = Math.min(1, Math.abs(physics.speed) / 32);
@@ -1312,12 +1666,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             physics.position.z + Math.cos(physics.heading) * 0.28
           );
           camera.position.lerp(_camTarget, 1 - Math.exp(-22 * dt));
-          const lookAtPos = new THREE.Vector3(
+          _lookAtPos.set(
             physics.position.x + Math.sin(effYaw) * 18 * Math.cos(effPitch),
             physics.position.y + eyeHeight + physics.pitchAngle * 3.5 - Math.sin(effPitch) * 14,
             physics.position.z + Math.cos(effYaw) * 18 * Math.cos(effPitch)
           );
-          camera.lookAt(lookAtPos);
+          camera.lookAt(_lookAtPos);
           camBankRollRef.current = THREE.MathUtils.damp(
             camBankRollRef.current,
             physics.leanAngle * 0.55,
@@ -1328,27 +1682,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const targetFov =
             (isPortrait ? 78 : 72) + speedRatio * 12 + nitroEffectIntensity * 16;
           camera.fov = THREE.MathUtils.damp(camera.fov, targetFov, 8, dt);
-        } else if (mode === 'helicopter') {
-          // High Tactical / Helicopter Top-Down Chase Cam
-          const followDist = isPortrait ? 13.5 : 11.5;
-          const followHeight = isPortrait ? 14.5 : 12.5;
-          _camOffset.set(
-            -Math.sin(effYaw) * followDist,
-            followHeight,
-            -Math.cos(effYaw) * followDist
-          );
-          _camTarget.copy(physics.position).add(_camOffset);
-          camera.position.lerp(_camTarget, 1 - Math.exp(-7 * dt));
-          const lookAtPos = physics.position.clone();
-          lookAtPos.x += Math.sin(effYaw) * 4.5;
-          lookAtPos.z += Math.cos(effYaw) * 4.5;
-          camera.lookAt(lookAtPos);
-          camera.fov = THREE.MathUtils.damp(
-            camera.fov,
-            (isPortrait ? 68 : 60) + nitroEffectIntensity * 10,
-            6,
-            dt
-          );
         } else {
           // 'dynamic' or 'close' mode
           const isDynamic = mode === 'dynamic';
@@ -1405,12 +1738,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const lookAhead = physics.isOnFoot
             ? 1.5
             : 3.4 + speedRatio * 2.2 + nitroEffectIntensity * 2.6;
-          const lookAtPos = physics.position.clone();
-          lookAtPos.y += physics.isOnFoot ? 1.2 : (isPortrait ? 0.65 : 1.05) + physics.pitchAngle * 0.7;
-          lookAtPos.x += Math.sin(effYaw) * lookAhead * pitchCos;
-          lookAtPos.z += Math.cos(effYaw) * lookAhead * pitchCos;
-          lookAtPos.y -= pitchSin * 1.3;
-          camera.lookAt(lookAtPos);
+          _lookAtPos.copy(physics.position);
+          _lookAtPos.y += physics.isOnFoot ? 1.2 : (isPortrait ? 0.65 : 1.05) + physics.pitchAngle * 0.7;
+          _lookAtPos.x += Math.sin(effYaw) * lookAhead * pitchCos;
+          _lookAtPos.z += Math.cos(effYaw) * lookAhead * pitchCos;
+          _lookAtPos.y -= pitchSin * 1.3;
+          camera.lookAt(_lookAtPos);
 
           // Subtle dynamic Dutch roll bank when leaning into curves
           if (isDynamic) {
@@ -1453,9 +1786,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         renderer.render(scene, camera);
       }
 
-      // Draw active cinematic title HUD overlay badge if cinematic mode is framing a landmark
-      if (cinematicCam.isActive) {
-        // Handled smoothly in HUD or canvas overlay
+      // Live WebGL Renderer Telemetry for Toggleable Debug Panel (zero React re-renders)
+      if (showDebugPanelRef.current && debugMetricsDomRef.current && elapsedTime - lastTelemetryTime < 0.04) {
+        const info = renderer.info;
+        const fpsVal = Math.round(lodManager.smoothedFps);
+        const drawCalls = info.render.calls;
+        const tris = info.render.triangles;
+        const visNodes = lodManager.visibleManagedNodes;
+        const totNodes = lodManager.totalManagedNodes;
+        const activeCars = traffic.activeVehicleCount;
+        const totalCars = traffic.vehicles.length;
+        const camFar = Math.round(camera.far);
+        const pxRatio = renderer.getPixelRatio().toFixed(2);
+        const dynScale = Math.round(lodManager.lodDistanceScale * 100);
+        debugMetricsDomRef.current.textContent =
+          `FPS:        ${fpsVal} FPS (Alvo: 60)\n` +
+          `Draw Calls: ${drawCalls}\n` +
+          `Triângulos: ${tris.toLocaleString('pt-BR')}\n` +
+          `Objetos LOD:${visNodes} vis / ${totNodes} total\n` +
+          `Cena Root:  ${scene.children.length} nós\n` +
+          `Trânsito:   ${activeCars} ativos / ${totalCars} pool\n` +
+          `Visão/Fog:  ${camFar}m (Escala Din: ${dynScale}%)\n` +
+          `PixelRatio: ${pxRatio}x (${performanceModeRef.current.toUpperCase()})`;
       }
     }
 
@@ -1464,6 +1816,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('resize', handleResize);
       sound.stopAmbient();
       sound.stopEngine();
       airport.dispose();
@@ -1482,6 +1835,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       physicsRef.current.repairFull();
     }
   }, [repairTrigger]);
+
+  // Sync bike refuel trigger
+  useEffect(() => {
+    if (refuelTrigger && refuelTrigger > 0) {
+      physicsRef.current.refuelFull();
+    }
+  }, [refuelTrigger]);
 
   // Sync full player revive after Game Over / Lose / Bail -> Respawn in a DIFFERENT city location!
   useEffect(() => {
@@ -1761,6 +2121,32 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       (bike.helmetMesh.material as THREE.MeshStandardMaterial).color.set(customization.helmetColor);
     }
 
+    if (bike.helmetExtrasGroup) {
+      populateHelmetStyleExtras(
+        bike.helmetExtrasGroup,
+        customization.helmetStyle || 'street',
+        customization.helmetColor
+      );
+    }
+
+    if (bike.decalMat) {
+      const dStyle = customization.decalStyle || 'none';
+      bike.decalMat.map = createBikeDecalTexture(dStyle);
+      bike.decalMat.opacity = dStyle === 'none' ? 0 : 1;
+      bike.decalMat.needsUpdate = true;
+    }
+
+    const outfitColors = getRiderOutfitColors(customization.riderOutfit);
+    if (bike.jacketMat) {
+      bike.jacketMat.color.setHex(outfitColors.jacket);
+    }
+    if (bike.stripeMat) {
+      bike.stripeMat.color.setHex(outfitColors.stripe);
+    }
+    if (bike.pantsMat) {
+      bike.pantsMat.color.setHex(outfitColors.pants);
+    }
+
     if (bike.trunkMesh) {
       const mat = bike.trunkMesh.material as THREE.MeshStandardMaterial;
       mat.map = createTrunkLogoTexture(customization.trunkSkin);
@@ -1791,12 +2177,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   useEffect(() => {
     if (rendererRef.current) {
       const isLow = performanceMode === 'low';
-      const scale = isLow ? 0.85 : Math.min(window.devicePixelRatio, 2);
+      const scale =
+        performanceMode === 'low'
+          ? 1.0
+          : performanceMode === 'medium'
+          ? Math.min(window.devicePixelRatio, 1.25)
+          : Math.min(window.devicePixelRatio, 1.5);
       rendererRef.current.setPixelRatio(scale);
       rendererRef.current.shadowMap.enabled = !isLow;
-      
-      // Need to traverse scene and update materials if shadows toggled?
-      // Usually Three.js handles shadowMap.enabled change, but some materials might need recompile.
     }
   }, [performanceMode]);
 
@@ -1875,14 +2263,43 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   return (
-    <div
-      ref={mountRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-      className="absolute inset-0 w-full h-full overflow-hidden bg-slate-900 select-none touch-none cursor-grab active:cursor-grabbing"
-    />
+    <div className="absolute inset-0 w-full h-full overflow-hidden bg-slate-900 select-none touch-none">
+      <div
+        ref={mountRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        className="w-full h-full cursor-grab active:cursor-grabbing"
+      />
+      {/* Toggleable Real-Time Performance & renderer.info Debug Panel */}
+      <div
+        data-hud-control="true"
+        className="fixed left-2 bottom-[200px] sm:bottom-6 z-40 flex flex-col items-start gap-1 pointer-events-auto"
+      >
+        <button
+          type="button"
+          onClick={() => setShowDebugPanel(prev => !prev)}
+          className={`px-2.5 py-1 rounded-lg text-[10px] font-black tracking-wider uppercase border shadow-md transition active:scale-95 ${
+            showDebugPanel
+              ? 'bg-emerald-600/95 text-slate-950 border-emerald-300'
+              : 'bg-slate-950/80 text-emerald-400 border-emerald-500/40 hover:bg-slate-900'
+          }`}
+        >
+          📊 {showDebugPanel ? 'FECHAR DEBUG' : 'DEBUG FPS'}
+        </button>
+        {showDebugPanel && (
+          <div className="bg-slate-950/92 backdrop-blur-md border border-emerald-500/50 rounded-xl p-2.5 text-[10px] font-mono text-emerald-300 shadow-2xl min-w-[215px]">
+            <div className="text-[9px] font-black text-amber-400 uppercase tracking-wider mb-1 border-b border-slate-800 pb-0.5">
+              ⚡ WebGL Renderer.info • Telemetria
+            </div>
+            <pre ref={debugMetricsDomRef} className="leading-tight whitespace-pre font-mono">
+              Carregando métricas...
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };

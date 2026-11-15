@@ -70,9 +70,11 @@ export class BikePhysics {
   public isSkidding = false;
   public isAquaplaning = false;
 
-  // Collision cooldown & Bike Health (0 to 100%)
+  // Collision cooldown & Bike Health (0 to 100%) & Fuel (0 to 100%)
   public crashCooldown = 0;
   public bikeHealth = 100;
+  public fuel = 100;
+  private skidSoundCooldown = 0;
 
   // On-Foot & Bike Hijacking state
   public isOnFoot = false;
@@ -103,6 +105,10 @@ export class BikePhysics {
     return this.playerHealth;
   }
 
+  public refuelFull() {
+    this.fuel = 100;
+  }
+
   /**
    * Revives the player with 100% Life and 100% Bike Health at a DIFFERENT location in the city
    * far from where the player lost their life!
@@ -110,6 +116,7 @@ export class BikePhysics {
   public revivePlayerFull(): RespawnLocation {
     this.playerHealth = 100;
     this.bikeHealth = 100;
+    this.fuel = 100;
 
     // Pick a different respawn location that is also far (> 45m) from current death position
     const candidates = RESPAWN_LOCATIONS.map((loc, idx) => ({ loc, idx })).filter(
@@ -157,6 +164,7 @@ export class BikePhysics {
   public repairFull() {
     this.bikeHealth = 100;
   }
+
 
   public resetPosition() {
     this.revivePlayerFull();
@@ -431,16 +439,24 @@ export class BikePhysics {
     this.isJumping = false;
     this.position.y = 0;
 
-    // 1. Calculate stats based on upgrades & mechanical health (plus bonus if riding Rival's Hijacked Bike!)
+    // 1. Calculate stats based on upgrades, mechanical health & fuel (plus bonus if riding Rival's Hijacked Bike!)
+    if (this.skidSoundCooldown > 0) {
+      this.skidSoundCooldown = Math.max(0, this.skidSoundCooldown - dt);
+    }
     const healthPerfFactor =
       this.bikeHealth < 25 ? 0.65 : this.bikeHealth < 55 ? 0.84 : 1.0;
+    const fuelPerfFactor = this.fuel <= 0 ? 0.28 : this.fuel < 15 ? 0.78 : 1.0;
     const hijackBonus = this.hasHijackedRivalBike ? 4.0 : 0;
-    const baseTopSpeed = (18 + upgrades.engineLevel * 4.5 + hijackBonus) * healthPerfFactor;
+    const baseTopSpeed =
+      (18 + upgrades.engineLevel * 4.5 + hijackBonus) * healthPerfFactor * fuelPerfFactor;
     const nitroBoostFactor = upgrades.nitroUnlocked ? 1.62 : 1.48;
     const nitroSpeedMultiplier = this.isNitroActive ? nitroBoostFactor : 1.0;
     const maxSpeed = baseTopSpeed * nitroSpeedMultiplier;
 
-    const baseAccel = (11 + upgrades.accelerationLevel * 3.0 + hijackBonus * 0.6) * healthPerfFactor;
+    const baseAccel =
+      (11 + upgrades.accelerationLevel * 3.0 + hijackBonus * 0.6) *
+      healthPerfFactor *
+      fuelPerfFactor;
     const accel = baseAccel * (this.isNitroActive ? 1.85 : 1.0);
 
     const brakePower = 16 + upgrades.brakesLevel * 3.5;
@@ -471,15 +487,15 @@ export class BikePhysics {
     const effectiveGrip = Math.min(1.0, isSheltered ? 1.0 : baseGrip + (isSevereStorm && this.isAquaplaning ? 0 : tireGripBonus));
 
     // 2. Nitro Handling (Available on all deliveries; Shop Nitro Pro upgrade extends duration & boost!)
-    if (inputs.nitro && this.nitroAvailable >= 0.18 && !this.isNitroActive) {
+    if (inputs.nitro && this.nitroAvailable >= 0.18 && !this.isNitroActive && this.fuel > 0) {
       this.isNitroActive = true;
       sound.playNitro();
     }
     if (this.isNitroActive) {
       const drainRate = upgrades.nitroUnlocked || this.hasHijackedRivalBike ? 0.25 : 0.34;
       this.nitroAvailable -= dt * drainRate;
-      if (this.nitroAvailable <= 0) {
-        this.nitroAvailable = 0;
+      if (this.nitroAvailable <= 0 || this.fuel <= 0) {
+        this.nitroAvailable = Math.max(0, this.nitroAvailable);
         this.isNitroActive = false;
       } else if (!inputs.nitro && this.nitroAvailable < 0.72) {
         this.isNitroActive = false;
@@ -489,21 +505,40 @@ export class BikePhysics {
       this.nitroAvailable = Math.min(1.0, this.nitroAvailable + dt * rechargeRate);
     }
 
-    // 3. Acceleration & Braking (Nitro also provides automatic forward jet thrust!)
+    // Consume fuel gradually when riding/accelerating
+    if (inputs.forward || this.isNitroActive || Math.abs(this.speed) > 1.0) {
+      const fuelBurnRate = this.isNitroActive ? 0.95 : inputs.forward ? 0.32 : 0.08;
+      this.fuel = Math.max(0, this.fuel - dt * fuelBurnRate);
+    }
+
+    // 3. Progressive Acceleration & Braking Skid (Derrapagem no Freio)
     if (inputs.forward || this.isNitroActive) {
-      this.speed += accel * dt * (0.65 + effectiveGrip * 0.35);
+      const speedNorm = Math.min(1, Math.abs(this.speed) / Math.max(10, baseTopSpeed));
+      // Progressive torque curve: smooth initial pull, strong mid-range, tapering near redline
+      const progressiveCurve = 0.72 + Math.sin(speedNorm * Math.PI) * 0.38;
+      this.speed += accel * progressiveCurve * dt * (0.65 + effectiveGrip * 0.35);
       if (this.speed > maxSpeed) {
         this.speed = THREE.MathUtils.damp(this.speed, maxSpeed, 4, dt);
+      }
+      if (!this.isAquaplaning && effectiveGrip >= 0.75) {
+        this.isSkidding = false;
       }
     } else if (inputs.backward) {
       if (this.speed > 0.5) {
         this.speed -= brakePower * dt;
-        if (effectiveGrip < 0.75 && this.speed > 10) {
+        // Trigger braking skid / drift when braking hard from moderate/high speed
+        if (this.speed > 6.5) {
           this.isSkidding = true;
-          sound.playSkid();
+          if (this.skidSoundCooldown <= 0) {
+            sound.playSkid();
+            this.skidSoundCooldown = 0.22;
+          }
+        } else {
+          this.isSkidding = false;
         }
       } else {
         // Reverse
+        this.isSkidding = false;
         this.speed = Math.max(-7, this.speed - accel * 0.65 * dt);
       }
     } else {
@@ -514,37 +549,50 @@ export class BikePhysics {
       } else if (this.speed < 0) {
         this.speed = Math.min(0, this.speed + drag * dt);
       }
+      if (!this.isAquaplaning && effectiveGrip >= 0.75) {
+        this.isSkidding = false;
+      }
     }
 
-    // 4. Steering & Leaning
-    // In Three.js right-handed system with camera behind bike:
-    // +heading rotates toward +X (Left on screen), -heading rotates toward -X (Right on screen)
+    // 4. Smooth Steering & Leaning with Adjustable Sensitivity
     const sensMultiplier = inputs.sensitivity ?? 1.0;
-    const turnSensitivity = (2.4 - Math.min(Math.abs(this.speed), 25) / 25 * 0.75) * (effectiveGrip * 0.8 + 0.2) * sensMultiplier;
+    const turnSensitivity =
+      (2.35 - (Math.min(Math.abs(this.speed), 26) / 26) * 0.72) *
+      (effectiveGrip * 0.82 + 0.18) *
+      sensMultiplier;
     let targetSteer = 0;
-    if (inputs.analogSteer !== undefined && Math.abs(inputs.analogSteer) > 0.05) {
+    if (inputs.analogSteer !== undefined && Math.abs(inputs.analogSteer) > 0.04) {
       targetSteer = THREE.MathUtils.clamp(inputs.analogSteer, -1, 1);
     } else {
       if (inputs.left) targetSteer += 1;
       if (inputs.right) targetSteer -= 1;
     }
 
-    this.steerAngle = THREE.MathUtils.damp(this.steerAngle, targetSteer * 0.6, 14, dt);
+    // Smooth steering damping
+    this.steerAngle = THREE.MathUtils.damp(
+      this.steerAngle,
+      targetSteer * 0.62,
+      11.5 * Math.sqrt(sensMultiplier),
+      dt
+    );
 
     // Allow steering both while moving and pivoting at low speed
     if (Math.abs(this.speed) > 0.2) {
       const turnDirection = this.speed >= 0 ? 1 : -1;
-      this.heading += this.steerAngle * turnSensitivity * turnDirection * dt;
+      const skidYawBoost = this.isSkidding && inputs.backward ? 1.28 : 1.0;
+      this.heading += this.steerAngle * turnSensitivity * skidYawBoost * turnDirection * dt;
     } else if (Math.abs(targetSteer) > 0.05) {
       // Pivot handlebars / turn in place slowly
       this.heading += this.steerAngle * 1.4 * dt;
     }
 
-    // Lean angle (roll) physics
-    const targetLean = -this.steerAngle * (Math.min(Math.abs(this.speed), 25) / 25) * 0.65;
-    this.leanAngle = THREE.MathUtils.damp(this.leanAngle, targetLean, 8, dt);
+    // Lean angle (roll) physics: leans into corners proportionally to speed and steering
+    const speedLeanFactor = Math.min(Math.abs(this.speed), 24) / 24;
+    const skidExtraLean = this.isSkidding ? -this.steerAngle * 0.18 : 0;
+    const targetLean = -this.steerAngle * speedLeanFactor * 0.72 + skidExtraLean;
+    this.leanAngle = THREE.MathUtils.damp(this.leanAngle, targetLean, 9.5, dt);
 
-    // Slipping / drift in wet weather or aquaplaning in severe storm
+    // Slipping / drift on braking skid, wet weather, or aquaplaning in severe storm
     if (this.isAquaplaning) {
       // Extreme loss of lateral traction during aquaplaning
       this.slipAngle = THREE.MathUtils.damp(this.slipAngle, -this.steerAngle * 0.85, 4.5, dt);
@@ -553,21 +601,35 @@ export class BikePhysics {
         this.heading += this.slipAngle * 1.35 * dt;
         if (!this.isSkidding) {
           this.isSkidding = true;
-          sound.playSkid();
+          if (this.skidSoundCooldown <= 0) {
+            sound.playSkid();
+            this.skidSoundCooldown = 0.22;
+          }
         }
       }
+    } else if (inputs.backward && this.speed > 6.5) {
+      // Rear wheel drift when braking hard into a turn
+      const brakeDriftTarget =
+        Math.abs(this.steerAngle) > 0.08
+          ? -this.steerAngle * 0.55
+          : Math.sin(this.wheelRotation * 0.5) * 0.08;
+      this.slipAngle = THREE.MathUtils.damp(this.slipAngle, brakeDriftTarget, 7.5, dt);
     } else if (effectiveGrip < 0.8 && Math.abs(this.steerAngle) > 0.3 && this.speed > 10) {
       this.slipAngle = THREE.MathUtils.damp(this.slipAngle, -this.steerAngle * 0.45, 6, dt);
       if (!this.isSkidding) {
         this.isSkidding = true;
-        sound.playSkid();
+        if (this.skidSoundCooldown <= 0) {
+          sound.playSkid();
+          this.skidSoundCooldown = 0.22;
+        }
       }
     } else {
-      this.slipAngle = THREE.MathUtils.damp(this.slipAngle, 0, 5, dt);
+      this.slipAngle = THREE.MathUtils.damp(this.slipAngle, 0, 6, dt);
       if (!inputs.backward) {
         this.isSkidding = false;
       }
     }
+
 
     // 5. "DAR GRAU" (Wheelie) Physics & Scoring
     if (inputs.wheelie && this.speed > 2) {

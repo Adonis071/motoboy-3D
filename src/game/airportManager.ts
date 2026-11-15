@@ -45,8 +45,8 @@ export class AirportManager {
     this.group = new THREE.Group();
     this.group.name = 'intercity_airport';
 
-    const airportX = -750;
-    const airportZ = -1200;
+    const airportX = -900;
+    const airportZ = -900;
     this.group.position.set(airportX, 0, airportZ);
 
     const concreteMat = new THREE.MeshStandardMaterial({

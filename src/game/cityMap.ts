@@ -431,7 +431,7 @@ export const DELIVERY_POINTS: DeliveryPoint[] = [
     type: 'restaurant',
     districtId: 'industrial',
     x: -75.5,
-    z: -145,
+    z: -122,
     buildingOffset: { dx: -7.5, dz: 0, rotationY: Math.PI / 2 },
     primaryColor: 0xea580c,
     accentColor: 0xfacc15,
@@ -450,7 +450,7 @@ export const DELIVERY_POINTS: DeliveryPoint[] = [
     type: 'restaurant',
     districtId: 'industrial',
     x: -15.5,
-    z: -145,
+    z: -122,
     buildingOffset: { dx: -7.5, dz: 0, rotationY: Math.PI / 2 },
     primaryColor: 0x9a3412,
     accentColor: 0x38bdf8,
@@ -468,7 +468,7 @@ export const DELIVERY_POINTS: DeliveryPoint[] = [
     type: 'customer',
     districtId: 'industrial',
     x: 44.5,
-    z: -145,
+    z: -122,
     primaryColor: 0xf97316,
     accentColor: 0xfdba74,
     icon: '🚢',
@@ -484,7 +484,7 @@ export const DELIVERY_POINTS: DeliveryPoint[] = [
     type: 'restaurant',
     districtId: 'autodromo',
     x: -15.5,
-    z: 145,
+    z: 122,
     buildingOffset: { dx: -7.5, dz: 0, rotationY: Math.PI / 2 },
     primaryColor: 0x7e22ce,
     accentColor: 0x22d3ee,
@@ -502,7 +502,7 @@ export const DELIVERY_POINTS: DeliveryPoint[] = [
     type: 'customer',
     districtId: 'autodromo',
     x: -40,
-    z: 148,
+    z: 151.5,
     primaryColor: 0x16a34a,
     accentColor: 0xfacc15,
     icon: '⚽',
@@ -628,13 +628,27 @@ export function generateDeliveryOrder(
 
   const catalogItem = menu[Math.floor(Math.random() * menu.length)];
 
-  const distMeters = Math.hypot(rest.x - cust.x, rest.z - cust.z);
-  const timeLimit = Math.max(65, Math.round(distMeters * 0.9 + 45));
+  // Determine order special tags: Comida Quente (tempo limitado), Frágil (sem batidas), Urgente (bônus alto)
+  const isFragile = catalogItem.fragile;
+  const isUrgent = catalogItem.urgent;
+  const isHot =
+    rest.category === 'hamburgueria' ||
+    rest.category === 'pizzaria' ||
+    rest.category === 'restaurante' ||
+    (!isFragile && !isUrgent);
 
+  const distMeters = Math.hypot(rest.x - cust.x, rest.z - cust.z);
+  const rawTimeLimit = Math.max(60, Math.round(distMeters * 0.9 + 45));
+  const timeLimit = isHot ? Math.max(52, Math.round(rawTimeLimit * 0.85)) : rawTimeLimit;
+
+  const urgentBonusMult = isUrgent ? 1.25 : 1.0;
   const baseReward = Math.round(
-    catalogItem.basePrice * districtInfo.baseFareMultiplier * trunkBonusMultiplier
+    catalogItem.basePrice *
+      districtInfo.baseFareMultiplier *
+      trunkBonusMultiplier *
+      urgentBonusMult
   );
-  const tipPotential = Math.round(baseReward * 0.45);
+  const tipPotential = Math.round(baseReward * (isUrgent ? 0.55 : isFragile ? 0.5 : 0.45));
 
   return {
     id: 'ord_' + Math.random().toString(36).substring(2, 8),
@@ -651,7 +665,22 @@ export function generateDeliveryOrder(
     timeLimitSeconds: timeLimit,
     timeRemainingSeconds: timeLimit,
     state: 'to_pickup',
-    isFragile: catalogItem.fragile,
-    isUrgent: catalogItem.urgent,
+    isFragile,
+    isUrgent,
+    isHot,
+    collisionCount: 0,
   };
 }
+
+export function generateOrderQueue(
+  unlockedDistricts: DistrictId[],
+  trunkBonusMultiplier: number = 1.0,
+  count: number = 3
+): DeliveryOrder[] {
+  const list: DeliveryOrder[] = [];
+  for (let i = 0; i < count; i++) {
+    list.push(generateDeliveryOrder(unlockedDistricts, trunkBonusMultiplier));
+  }
+  return list;
+}
+

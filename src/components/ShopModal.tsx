@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import {
   BikeCustomization,
+  BikeDecalStyle,
   BikeUpgrades,
+  HelmetStyle,
   PlayerStats,
+  RiderOutfit,
 } from '../types/game';
 import { sound } from '../audio/soundEngine';
 import { motion } from 'motion/react';
@@ -24,8 +27,13 @@ interface ShopModalProps {
   stats: PlayerStats;
   upgrades: BikeUpgrades;
   customization: BikeCustomization;
+  fuelPct?: number;
+  bikeHealth?: number;
   onBuyUpgrade: (key: keyof BikeUpgrades, cost: number) => void;
   onUpdateCustomization: (newCustom: BikeCustomization) => void;
+  onDeductCoins?: (cost: number) => void;
+  onRefuel?: () => void;
+  onRepair?: () => void;
   onClose: () => void;
 }
 
@@ -33,8 +41,13 @@ export const ShopModal: React.FC<ShopModalProps> = ({
   stats,
   upgrades,
   customization,
+  fuelPct = 100,
+  bikeHealth = 100,
   onBuyUpgrade,
   onUpdateCustomization,
+  onDeductCoins,
+  onRefuel,
+  onRepair,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<'upgrades' | 'visuals'>('upgrades');
@@ -78,6 +91,21 @@ export const ShopModal: React.FC<ShopModalProps> = ({
     { name: 'Dourado Campeão', hex: '#eab308' },
   ];
 
+  const helmetStyleOptions: Array<{ id: HelmetStyle; name: string; desc: string }> = [
+    { id: 'street', name: 'Fechado Street', desc: 'Casco integral urbano com viseira espelhada' },
+    { id: 'modular', name: 'Articulado Robocop', desc: 'Queixeira articulada com entradas de ar' },
+    { id: 'cross', name: 'Cross / Trail Pala', desc: 'Aba solar alongada e queixeira off-road' },
+    { id: 'aeropro', name: 'Aero Racing Spoiler', desc: 'Aerofólio traseiro de pista em carbono' },
+  ];
+
+  const decalOptions: Array<{ id: BikeDecalStyle; name: string; color: string }> = [
+    { id: 'none', name: 'Pintura Lisa (Sem Adesivo)', color: '#475569' },
+    { id: 'flame_orange', name: 'Chamas Racing Laranja', color: '#f97316' },
+    { id: 'emerald_stripe', name: 'Faixa Dupla Esmeralda', color: '#10b981' },
+    { id: 'grau_king', name: 'Adesivo 244 Rei do Grau', color: '#facc15' },
+    { id: 'carbon_pro', name: 'Fibra de Carbono & Neon', color: '#06b6d4' },
+  ];
+
   const neonOptions: Array<{ id: BikeCustomization['neonColor']; name: string; color: string }> = [
     { id: 'none', name: 'Desligado', color: '#475569' },
     { id: 'cyan', name: 'Ciano Cyber', color: '#00f3ff' },
@@ -93,6 +121,53 @@ export const ShopModal: React.FC<ShopModalProps> = ({
     { id: 'coyote', name: 'Coyote Boca Aberta', desc: 'Estalado agudo que ecoa pelos prédios' },
     { id: 'direto', name: 'Escape Direto 2 Way', desc: 'Corta giro agressivo no talo!' },
   ];
+
+  const outfitOptions: Array<{
+    id: RiderOutfit;
+    name: string;
+    desc: string;
+    price: number;
+    color: string;
+  }> = [
+    {
+      id: 'classic',
+      name: 'Jaqueta Motoboy Clássica',
+      desc: 'Jaqueta preta com faixa refletiva verde-limão',
+      price: 0,
+      color: '#0f172a',
+    },
+    {
+      id: 'neon_windbreaker',
+      name: 'Corta-Vento Esmeralda Neon',
+      desc: 'Impermeável verde esmeralda com detalhes dourados',
+      price: 120,
+      color: '#059669',
+    },
+    {
+      id: 'rain_suit',
+      name: 'Capa de Chuva Tempestade',
+      desc: 'Alta visibilidade amarela/laranja para temporais',
+      price: 150,
+      color: '#ca8a04',
+    },
+    {
+      id: 'leather_pro',
+      name: 'Jaqueta Couro Pro Racing',
+      desc: 'Traje vermelho esportivo com ombreiras de corrida',
+      price: 220,
+      color: '#991b1b',
+    },
+    {
+      id: 'cyber_armor',
+      name: 'Armadura Urbana Lenda',
+      desc: 'Traje tático noturno com faixas neon ciano',
+      price: 320,
+      color: '#1e1b4b',
+    },
+  ];
+
+  const unlockedOutfits = customization.unlockedOutfits || ['classic'];
+  const currentOutfit = customization.riderOutfit || 'classic';
 
   return (
     <motion.div
@@ -178,19 +253,59 @@ export const ShopModal: React.FC<ShopModalProps> = ({
             onClick={() => setActiveTab('visuals')}
             className={`flex-1 sm:flex-none justify-center py-2.5 sm:py-3 px-2 sm:px-4 font-bold text-xs sm:text-sm border-b-2 flex items-center gap-1.5 sm:gap-2 transition-colors cursor-pointer ${
               activeTab === 'visuals'
-                ? 'border-purple-500 text-purple-400'
+                ? 'border-emerald-500 text-emerald-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Palette className="w-4 h-4 shrink-0" />
-            <span>Pintura & Estilo</span>
+            <span>Roupas & Pintura</span>
           </button>
         </div>
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto touch-scroll-y p-3 sm:p-5 space-y-4">
           {activeTab === 'upgrades' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div className="space-y-4">
+              {/* COMBUSTÍVEL & MANUTENÇÃO RÁPIDA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-950/75 border border-emerald-500/30 rounded-2xl p-3.5">
+                <div className="flex items-center justify-between gap-2 bg-slate-900/90 border border-slate-800 rounded-xl p-3">
+                  <div>
+                    <div className="text-xs font-black text-orange-400 flex items-center gap-1.5">
+                      <span>⛽ Combustível ({fuelPct}%)</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Encha o tanque para não perder potência
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onRefuel?.()}
+                    disabled={fuelPct >= 98 || stats.coins < 15}
+                    className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-black text-xs shrink-0 cursor-pointer"
+                  >
+                    {fuelPct >= 98 ? 'Tanque Cheio' : 'Abastecer R$ 15'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 bg-slate-900/90 border border-slate-800 rounded-xl p-3">
+                  <div>
+                    <div className="text-xs font-black text-emerald-400 flex items-center gap-1.5">
+                      <span>🔧 Manutenção ({bikeHealth}%)</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Conserte motor, carenagem e freios
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onRepair?.()}
+                    disabled={bikeHealth >= 99 || stats.coins < 20}
+                    className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-black text-xs shrink-0 cursor-pointer"
+                  >
+                    {bikeHealth >= 99 ? '100% Revisada' : 'Consertar R$ 20'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {/* 1. MOTOR / VELOCIDADE MÁXIMA */}
               <div className="bg-slate-800/50 border border-slate-700/80 rounded-2xl p-4 flex flex-col justify-between">
                 <div>
@@ -432,9 +547,81 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                   </button>
                 )}
               </div>
+              </div>
             </div>
           ) : (
             <div className="space-y-6">
+              {/* 0. ROUPAS DO MOTOBOY (COMPRAR E EQUIPAR TRAJES) */}
+              <div>
+                <label className="text-xs font-black uppercase tracking-wider text-emerald-400 block mb-2.5">
+                  👕 Roupas & Trajes do Motoboy (Comprar / Equipar)
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {outfitOptions.map(o => {
+                    const isUnlocked = unlockedOutfits.includes(o.id);
+                    const isEquipped = currentOutfit === o.id;
+                    return (
+                      <button
+                        key={o.id}
+                        onClick={() => {
+                          if (isUnlocked) {
+                            sound.playCash();
+                            onUpdateCustomization({
+                              ...customization,
+                              riderOutfit: o.id,
+                            });
+                          } else if (stats.coins >= o.price) {
+                            sound.playCash();
+                            onDeductCoins?.(o.price);
+                            onUpdateCustomization({
+                              ...customization,
+                              riderOutfit: o.id,
+                              unlockedOutfits: [...unlockedOutfits, o.id],
+                            });
+                          }
+                        }}
+                        disabled={!isUnlocked && stats.coins < o.price}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          isEquipped
+                            ? 'border-emerald-400 bg-emerald-500/15 text-white'
+                            : isUnlocked
+                            ? 'border-slate-700 bg-slate-800/60 text-slate-200 hover:bg-slate-800'
+                            : 'border-amber-500/40 bg-slate-900/70 text-slate-300 hover:bg-slate-800 disabled:opacity-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="w-7 h-7 rounded-lg border border-white/20 shrink-0 flex items-center justify-center text-sm"
+                            style={{ backgroundColor: o.color }}
+                          >
+                            🧥
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-black truncate">{o.name}</div>
+                            <div className="text-[10px] text-slate-400 truncate">{o.desc}</div>
+                          </div>
+                        </div>
+                        <div className="shrink-0">
+                          {isEquipped ? (
+                            <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/60 px-2 py-1 rounded-lg border border-emerald-500/40">
+                              EQUIPADO
+                            </span>
+                          ) : isUnlocked ? (
+                            <span className="text-[10px] font-black text-slate-300 bg-slate-800 px-2 py-1 rounded-lg">
+                              USAR
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-black text-amber-400 bg-amber-500/15 border border-amber-500/40 px-2 py-1 rounded-lg">
+                              R$ {o.price}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* 1. PINTURA DA MOTO */}
               <div>
                 <label className="text-xs font-black uppercase tracking-wider text-slate-300 block mb-2.5">
@@ -465,10 +652,43 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                 </div>
               </div>
 
+              {/* 1.5 ADESIVOS DO TANQUE & CARENAGEM */}
+              <div>
+                <label className="text-xs font-black uppercase tracking-wider text-orange-400 block mb-2.5">
+                  🔥 Adesivos do Tanque & Carenagem
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {decalOptions.map(d => {
+                    const isSelected = (customization.decalStyle || 'none') === d.id;
+                    return (
+                      <button
+                        key={d.id}
+                        onClick={() => {
+                          sound.playCash();
+                          onUpdateCustomization({ ...customization, decalStyle: d.id });
+                        }}
+                        className={`p-2.5 rounded-xl border flex items-center gap-2.5 text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-orange-400 bg-orange-500/15 text-white'
+                            : 'border-slate-700 bg-slate-800/40 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <div
+                          className="w-5 h-5 rounded-md border border-white/20 shrink-0"
+                          style={{ backgroundColor: d.color }}
+                        />
+                        <span className="truncate">{d.name}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-orange-400 ml-auto" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* 2. ADESIVOS DO BAÚ */}
               <div>
                 <label className="text-xs font-black uppercase tracking-wider text-slate-300 block mb-2.5">
-                  Skin do Baú de Entrega
+                  Skin do Baú de Entrega & Mochila Térmica
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {trunkOptions.map(t => {
@@ -495,12 +715,12 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                 </div>
               </div>
 
-              {/* 3. CAPACETE DO MOTOBOY */}
+              {/* 3. CAPACETE DO MOTOBOY (COR E ESTILO) */}
               <div>
                 <label className="text-xs font-black uppercase tracking-wider text-slate-300 block mb-2.5">
-                  Capacete do Piloto
+                  Cor do Capacete do Piloto
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 mb-4">
                   {helmetOptions.map(h => {
                     const isSelected = customization.helmetColor === h.hex;
                     return (
@@ -518,6 +738,35 @@ export const ShopModal: React.FC<ShopModalProps> = ({
                           style={{ backgroundColor: h.hex }}
                         />
                         <span className="truncate">{h.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <label className="text-xs font-black uppercase tracking-wider text-amber-400 block mb-2.5">
+                  🪖 Estilo & Modelo do Capacete
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {helmetStyleOptions.map(hs => {
+                    const isSelected = (customization.helmetStyle || 'street') === hs.id;
+                    return (
+                      <button
+                        key={hs.id}
+                        onClick={() => {
+                          sound.playCash();
+                          onUpdateCustomization({ ...customization, helmetStyle: hs.id });
+                        }}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-amber-400 bg-amber-500/15 text-white'
+                            : 'border-slate-700 bg-slate-800/40 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-xs font-black">{hs.name}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-amber-400" />}
+                        </div>
+                        <p className="text-[10px] text-slate-400">{hs.desc}</p>
                       </button>
                     );
                   })}

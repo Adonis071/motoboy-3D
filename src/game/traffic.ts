@@ -98,6 +98,8 @@ export class TrafficManager {
   private assistTargetPos = new THREE.Vector3();
   private sirenTimer = 0;
   private isLowMode = false;
+  public activeVehicleCount = 0;
+  private maxActiveVehicles = 18;
 
   private carColors = [
     0x3b82f6,
@@ -115,13 +117,15 @@ export class TrafficManager {
     'police',
     'taxi',
     'suv',
-    'bus',
+    'truck',
     'pickup',
     'van',
   ];
 
-  constructor(scene: THREE.Scene, performanceMode: 'low' | 'high' = 'high') {
+  constructor(scene: THREE.Scene, performanceMode: 'low' | 'medium' | 'high' = 'high') {
     this.isLowMode = performanceMode === 'low';
+    this.maxActiveVehicles =
+      performanceMode === 'low' ? 14 : performanceMode === 'medium' ? 18 : 24;
     this.spawnTraffic(scene, performanceMode);
     this.spawnTrafficGuards(scene);
   }
@@ -206,7 +210,7 @@ export class TrafficManager {
     });
   }
 
-  private spawnTraffic(scene: THREE.Scene, performanceMode: 'low' | 'high') {
+  private spawnTraffic(scene: THREE.Scene, performanceMode: 'low' | 'medium' | 'high') {
     /**
      * Strict Brazilian Right-Hand Traffic (Mão Direita) on the 14m Avenue Grid with Dual Lanes & Corredor de Motos:
      * - Inner Car Lane: ±1.75m from center line
@@ -217,6 +221,7 @@ export class TrafficManager {
     const outerLaneOffset = 4.35;
     let vehicleId = 1;
     const isLow = performanceMode === 'low';
+
 
     const coreVertX = [-70, -10, 50];
     const coreHorizZ = [-70, -15, 45, 95];
@@ -557,6 +562,14 @@ export class TrafficManager {
       carGroup.position.set(cfg.laneCoord, 0, cfg.initialTravelCoord);
     }
 
+    carGroup.traverse(child => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.frustumCulled = true;
+        child.geometry.computeBoundingSphere();
+      }
+    });
+    carGroup.userData.isDynamic = true;
+    carGroup.userData.visFade = 1.0;
     scene.add(carGroup);
 
     this.vehicles.push({
@@ -586,6 +599,7 @@ export class TrafficManager {
     if (isPolice) {
       const officerMesh = createPoliceOfficer();
       officerMesh.visible = false;
+      officerMesh.userData.isDynamic = true;
       scene.add(officerMesh);
       this.officers.push({
         vehicleId: cfg.id,
@@ -692,8 +706,12 @@ export class TrafficManager {
     const dCfg = DISTRICT_TRAFFIC_CONFIG[districtId] || DISTRICT_TRAFFIC_CONFIG.centro;
     const tCfg = TIME_TRAFFIC_CONFIG[timeShift] || TIME_TRAFFIC_CONFIG.tarde;
     const speedMult = dCfg.speedFactor * tCfg.speedFactor * (isTrafficJam ? 0.42 : 1.0);
-    const guardCullDist = 110 * lodDistanceScale;
-    const vehicleCullDistSq = (165 * lodDistanceScale) * (165 * lodDistanceScale);
+
+    // Hysteresis: unload radii are strictly larger than load radii and matched to the fog horizon (95m -> 115m)
+    const guardLoadDist = 68 * lodDistanceScale;
+    const guardUnloadDist = 82 * lodDistanceScale;
+    const vehicleLoadDistSq = (95 * lodDistanceScale) * (95 * lodDistanceScale);
+    const vehicleUnloadDistSq = (115 * lodDistanceScale) * (115 * lodDistanceScale);
 
     // 1. Update Traffic Guards at Intersections
     for (const g of this.guards) {
@@ -703,11 +721,21 @@ export class TrafficManager {
         const dx = playerX - g.position.x;
         const dz = playerZ - g.position.z;
         const dist = Math.hypot(dx, dz);
-        if (dist > guardCullDist) {
+        const guardThreshold = g.mesh.visible ? guardUnloadDist : guardLoadDist;
+        if (dist > guardThreshold) {
           g.mesh.visible = false;
           continue;
         }
-        g.mesh.visible = true;
+        if (!g.mesh.visible) {
+          g.mesh.visible = true;
+          g.mesh.userData.visFade = 0.0;
+        }
+        if ((g.mesh.userData.visFade ?? 1.0) < 1.0) {
+          const nextFade = Math.min(1.0, (g.mesh.userData.visFade ?? 0) + dt / 0.38);
+          g.mesh.userData.visFade = nextFade;
+          const s = 0.85 + 0.15 * nextFade;
+          g.mesh.scale.set(s, 0.8 + 0.2 * nextFade, s);
+        }
       }
 
       if (g.koTimer > 0) {
@@ -882,6 +910,12 @@ export class TrafficManager {
       }
     }
 
+    let activeCount = 0;
+    const effectiveMaxVehicles = Math.max(
+      10,
+      Math.round(this.maxActiveVehicles * Math.min(1.15, lodDistanceScale))
+    );
+
     for (const v of this.vehicles) {
       // Show or hide extra congestion vehicles based on Rush-Hour Traffic Jam mode
       if (v.isJamExtra) {
@@ -891,17 +925,19 @@ export class TrafficManager {
         }
       }
 
-      // LOD Distance Culling for distant vehicles (> 165m * lodDistanceScale)
-      if (
-        playerX !== undefined &&
-        playerZ !== undefined &&
-        !(v.isPolice && (this.wantedTimer > 0 || (this.policeAssistTimer > 0 && v.id === this.assistVehicleId)))
-      ) {
+      const isPriorityPolice =
+        v.isPolice &&
+        (this.wantedTimer > 0 || (this.policeAssistTimer > 0 && v.id === this.assistVehicleId));
+
+      // Object Pool & Distance Culling with Hysteresis (Load at 95m, Unload at 115m, max active 14-24)
+      if (playerX !== undefined && playerZ !== undefined && !isPriorityPolice) {
         const vdx = v.group.position.x - playerX;
         const vdz = v.group.position.z - playerZ;
-        if (vdx * vdx + vdz * vdz > vehicleCullDistSq) {
+        const distSq = vdx * vdx + vdz * vdz;
+        const vThresholdSq = v.group.visible ? vehicleUnloadDistSq : vehicleLoadDistSq;
+        if (distSq > vThresholdSq || activeCount >= effectiveMaxVehicles) {
           v.group.visible = false;
-          // Lightweight 1D position wrap while culled
+          // Lightweight 1D position wrap while in inactive pool
           const step = v.targetSpeed * speedMult * dt;
           if (v.direction === 'x_pos') {
             v.group.position.x += step;
@@ -920,7 +956,21 @@ export class TrafficManager {
         }
       }
 
-      v.group.visible = true;
+      activeCount++;
+
+      if (!v.group.visible) {
+        v.group.visible = true;
+        v.group.userData.visFade = 0.0;
+      }
+
+      if ((v.group.userData.visFade ?? 1.0) < 1.0) {
+        const nextFade = Math.min(1.0, (v.group.userData.visFade ?? 0) + dt / 0.35);
+        v.group.userData.visFade = nextFade;
+        const s = 0.88 + 0.12 * nextFade;
+        v.group.scale.set(s, 0.85 + 0.15 * nextFade, s);
+      } else {
+        v.group.scale.set(1, 1, 1);
+      }
 
       const vehicleLaneOffset = v.laneTier === 'outer' ? 4.35 : 1.75;
 
@@ -1427,6 +1477,7 @@ export class TrafficManager {
         if (v.group.position.z < v.minCoord) v.group.position.z = v.maxCoord;
       }
     }
+    this.activeVehicleCount = activeCount;
   }
 
   /**

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { sound } from '../audio/soundEngine';
+import { createDirtFloorTexture, createLajotaFloorTexture } from './proceduralModels';
 
 export interface InteractiveAnimal {
   mesh: THREE.Group;
@@ -27,10 +28,10 @@ export const STORE_LOCATIONS: StoreLocation[] = [
     id: 'moto_shop_centro',
     name: 'Concessionária Moto SP Centro',
     type: 'moto_shop',
-    x: -85,
-    z: -70,
-    width: 24,
-    depth: 18,
+    x: -102,
+    z: -42,
+    width: 20,
+    depth: 16,
     bannerColor: '#f59e0b',
     title: 'MOTO SHOP • SHOWROOM 3D',
   },
@@ -38,9 +39,9 @@ export const STORE_LOCATIONS: StoreLocation[] = [
     id: 'gun_shop_centro',
     name: 'Ammunation Central',
     type: 'gun_shop',
-    x: 40,
-    z: -85,
-    width: 22,
+    x: 20,
+    z: -104,
+    width: 20,
     depth: 16,
     bannerColor: '#dc2626',
     title: 'AMMUNATION • LOJA DE ARMAS',
@@ -49,10 +50,10 @@ export const STORE_LOCATIONS: StoreLocation[] = [
     id: 'moto_shop_jardins',
     name: 'Moto Elite Jardins',
     type: 'moto_shop',
-    x: 80,
-    z: -45,
-    width: 24,
-    depth: 18,
+    x: 20,
+    z: -42,
+    width: 20,
+    depth: 16,
     bannerColor: '#10b981',
     title: 'MOTO ELITE • CUSTOMIZADORA',
   },
@@ -60,14 +61,38 @@ export const STORE_LOCATIONS: StoreLocation[] = [
     id: 'gun_shop_favela',
     name: 'Loja de Armas da Quebrada',
     type: 'gun_shop',
-    x: -85,
-    z: 75,
-    width: 20,
-    depth: 16,
+    x: -40,
+    z: 120,
+    width: 18,
+    depth: 14,
     bannerColor: '#ea580c',
     title: 'TÁTICO & ARMAS QUEBRADA',
   },
 ];
+
+// Avenue centerlines to guarantee no building or house ever spawns on a road
+const ROAD_X_CENTERS = [-2400, -1800, -1200, -600, -70, -10, 50, 290, 350, 410, 600, 1200, 1800, 2400];
+const ROAD_Z_CENTERS = [-2400, -1800, -1200, -600, -145, -70, -15, 45, 95, 145, 600, 1200, 1800, 2400];
+
+function ensureSafeOffRoadPosition(x: number, z: number, halfW: number, halfD: number): { x: number; z: number } {
+  let safeX = x;
+  let safeZ = z;
+  const roadHalfW = 8.5; // 7m road half-width + 1.5m curb clearance
+
+  for (const rx of ROAD_X_CENTERS) {
+    const minDistX = roadHalfW + halfW;
+    if (Math.abs(safeX - rx) < minDistX) {
+      safeX = safeX >= rx ? rx + minDistX + 2 : rx - minDistX - 2;
+    }
+  }
+  for (const rz of ROAD_Z_CENTERS) {
+    const minDistZ = roadHalfW + halfD;
+    if (Math.abs(safeZ - rz) < minDistZ) {
+      safeZ = safeZ >= rz ? rz + minDistZ + 2 : rz - minDistZ - 2;
+    }
+  }
+  return { x: safeX, z: safeZ };
+}
 
 /**
  * Creates 3D Farm Ranches, Stylish Houses, Skyscrapers, Moto Shops, Gun Shops and Interactive Animals
@@ -83,27 +108,52 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
   // Materials
   const farmWoodMat = new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.8 });
   const roofRedMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.5 });
-  const houseWallMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
-  const houseRoofMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.3 });
   const glassTowerMat = new THREE.MeshPhysicalMaterial({
     color: 0x38bdf8,
     metalness: 0.9,
-    roughness: 0.1,
-    transparent: true,
-    opacity: 0.85,
+    roughness: 0.12,
+    depthWrite: true,
   });
 
-  // 1. SKYSCRAPERS (Arranha-Céus Megacity com Heliponto & Coroa Neon)
+  // Floor Materials for Residential Lajota Courtyards & Rural Dirt Ranches
+  const houseLajotaTex = createLajotaFloorTexture(false);
+  houseLajotaTex.repeat.set(3, 3);
+  const houseLajotaMat = new THREE.MeshStandardMaterial({
+    map: houseLajotaTex,
+    bumpMap: houseLajotaTex,
+    bumpScale: 0.035,
+    roughness: 0.65,
+    metalness: 0.05,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+
+  const farmDirtTex = createDirtFloorTexture(false);
+  farmDirtTex.repeat.set(4, 4);
+  const farmDirtMat = new THREE.MeshStandardMaterial({
+    map: farmDirtTex,
+    bumpMap: farmDirtTex,
+    bumpScale: 0.06,
+    roughness: 0.94,
+    metalness: 0.0,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+
+  // 1. SKYSCRAPERS (Arranha-Céus Megacity com Heliponto & Coroa Neon — posicionados no centro dos quarteirões)
   const skyscraperCoords = [
-    { x: -105, z: -105, h: 85, accent: 0x00f3ff },
-    { x: -105, z: -55, h: 95, accent: 0xa855f7 },
-    { x: 95, z: -105, h: 110, accent: 0x38bdf8 },
-    { x: 95, z: -55, h: 90, accent: 0xf43f5e },
+    { x: -135, z: -105, h: 85, accent: 0x00f3ff },
+    { x: -135, z: -42, h: 95, accent: 0xa855f7 },
+    { x: -135, z: 18, h: 110, accent: 0x38bdf8 },
+    { x: -135, z: 72, h: 90, accent: 0xf43f5e },
   ];
 
   skyscraperCoords.forEach(tower => {
+    const safePos = ensureSafeOffRoadPosition(tower.x, tower.z, 12, 12);
     const towerGroup = new THREE.Group();
-    towerGroup.position.set(tower.x, 0, tower.z);
+    towerGroup.position.set(safePos.x, 0, safePos.z);
 
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(22, tower.h, 22),
@@ -137,13 +187,13 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
     group.add(towerGroup);
   });
 
-  // 2. STYLISH HOUSES (Casinhas Estilosas Modernas com Garagem, Varanda Iluminada & Piscina)
+  // 2. STYLISH HOUSES (Casinhas Estilosas Modernas com Garagem, Varanda Iluminada & Piscina — dentro dos quarteirões)
   const stylishHouseCoords = [
-    { x: 45, z: -25, wallHex: 0xf8fafc, roofHex: 0x0284c7 },
-    { x: 75, z: -25, wallHex: 0xfef3c7, roofHex: 0xb45309 },
-    { x: 105, z: -25, wallHex: 0xf1f5f9, roofHex: 0x0f766e },
-    { x: 45, z: -95, wallHex: 0xffedd5, roofHex: 0x991b1b },
-    { x: 75, z: -95, wallHex: 0xe0e7ff, roofHex: 0x4338ca },
+    { x: 65, z: -106, wallHex: 0xf8fafc, roofHex: 0x0284c7 },
+    { x: 65, z: -42, wallHex: 0xfef3c7, roofHex: 0xb45309 },
+    { x: 18, z: 70, wallHex: 0xf1f5f9, roofHex: 0x0f766e },
+    { x: 18, z: 120, wallHex: 0xffedd5, roofHex: 0x991b1b },
+    { x: 65, z: 120, wallHex: 0xe0e7ff, roofHex: 0x4338ca },
   ];
 
   const warmWindowMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
@@ -156,8 +206,16 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
   const poolWaterMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
 
   stylishHouseCoords.forEach(hPos => {
+    const safePos = ensureSafeOffRoadPosition(hPos.x, hPos.z, 12, 10);
     const hGroup = new THREE.Group();
-    hGroup.position.set(hPos.x, 0, hPos.z);
+    hGroup.position.set(safePos.x, 0, safePos.z);
+
+    // Piso de Lajota Residencial no Quintal / Lote da Casa
+    const yardLajota = new THREE.Mesh(new THREE.PlaneGeometry(22, 17), houseLajotaMat);
+    yardLajota.rotation.x = -Math.PI / 2;
+    yardLajota.position.set(1.2, 0.015, 0.5);
+    yardLajota.receiveShadow = true;
+    hGroup.add(yardLajota);
 
     const customWallMat = new THREE.MeshStandardMaterial({ color: hPos.wallHex, roughness: 0.38 });
     const customRoofMat = new THREE.MeshStandardMaterial({ color: hPos.roofHex, roughness: 0.32 });
@@ -212,28 +270,36 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
 
     // Illuminated Side Swimming Pool & Sun Deck (Piscina Iluminada)
     const poolDeck = new THREE.Mesh(
-      new THREE.BoxGeometry(5.2, 0.18, 7.6),
+      new THREE.BoxGeometry(4.8, 0.18, 7.2),
       new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 })
     );
-    poolDeck.position.set(8.8, 0.09, 0.5);
-    const poolWater = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.22, 6.2), poolWaterMat);
-    poolWater.position.set(8.8, 0.12, 0.5);
+    poolDeck.position.set(8.2, 0.09, 0.5);
+    const poolWater = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.22, 6.0), poolWaterMat);
+    poolWater.position.set(8.2, 0.12, 0.5);
     hGroup.add(poolDeck, poolWater);
 
     group.add(hGroup);
   });
 
-  // 3. FARM RANCHES & INTERACTIVE ANIMALS (Fazendas Rurais com Animais)
+  // 3. FARM RANCHES & INTERACTIVE ANIMALS (Fazendas Rurais posicionadas fora das avenidas e longe do canal marítimo)
   const farmCoords = [
-    { x: -145, z: -145 },
-    { x: 145, z: -145 },
-    { x: -145, z: 145 },
-    { x: 145, z: 145 },
+    { x: -165, z: -185 },
+    { x: -165, z: -106 },
+    { x: -165, z: 185 },
+    { x: 455, z: 185 },
   ];
 
   farmCoords.forEach(farm => {
+    const safeFarm = ensureSafeOffRoadPosition(farm.x, farm.z, 22, 22);
     const farmGroup = new THREE.Group();
-    farmGroup.position.set(farm.x, 0, farm.z);
+    farmGroup.position.set(safeFarm.x, 0, safeFarm.z);
+
+    // Piso de Terra Batida & Cascalho no Terreno da Fazenda / Curral
+    const ranchDirtFloor = new THREE.Mesh(new THREE.PlaneGeometry(44, 44), farmDirtMat);
+    ranchDirtFloor.rotation.x = -Math.PI / 2;
+    ranchDirtFloor.position.set(0, 0.014, 2);
+    ranchDirtFloor.receiveShadow = true;
+    farmGroup.add(ranchDirtFloor);
 
     // Barn (Celeiro de Madeira)
     const barn = new THREE.Mesh(new THREE.BoxGeometry(18, 9, 22), farmWoodMat);
@@ -286,8 +352,8 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
 
       const angle = (aIdx / animalTypes.length) * Math.PI * 2;
       const radius = 10 + aIdx * 3;
-      const posX = farm.x + Math.cos(angle) * radius;
-      const posZ = farm.z + Math.sin(angle) * radius;
+      const posX = safeFarm.x + Math.cos(angle) * radius;
+      const posZ = safeFarm.z + Math.sin(angle) * radius;
 
       aGroup.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
       farmGroup.add(aGroup);
@@ -307,8 +373,11 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
 
   // 4. MOTO SHOPS & GUN SHOPS STOREFRONTS
   STORE_LOCATIONS.forEach(store => {
+    const safeStore = ensureSafeOffRoadPosition(store.x, store.z, store.width / 2, store.depth / 2);
+    store.x = safeStore.x;
+    store.z = safeStore.z;
     const storeGroup = new THREE.Group();
-    storeGroup.position.set(store.x, 0, store.z);
+    storeGroup.position.set(safeStore.x, 0, safeStore.z);
 
     const storeBody = new THREE.Mesh(
       new THREE.BoxGeometry(store.width, 6, store.depth),
@@ -336,7 +405,7 @@ export function buildCityAdvancedBuildings(scene: THREE.Scene): {
     }
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
-    const signMat = new THREE.SpriteMaterial({ map: tex });
+    const signMat = new THREE.SpriteMaterial({ map: tex, depthWrite: false });
     const sign = new THREE.Sprite(signMat);
     sign.scale.set(10, 2.5, 1);
     sign.position.set(0, 6.8, store.depth / 2 + 0.1);

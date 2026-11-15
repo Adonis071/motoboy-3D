@@ -7,12 +7,13 @@ import {
   DeliveryOrder,
   DistrictId,
   GameMode,
+  PerformanceMode,
   PlayerStats,
   SkyTheme,
   TimeShift,
   WeatherType,
 } from './types/game';
-import { DISTRICTS, generateDeliveryOrder } from './game/cityMap';
+import { DISTRICTS, generateDeliveryOrder, generateOrderQueue } from './game/cityMap';
 import { TIME_SHIFT_PRESETS, WEATHER_PRESETS } from './game/weatherManager';
 import { InputState } from './game/physics';
 import { sound } from './audio/soundEngine';
@@ -35,6 +36,17 @@ const STORAGE_STATS = 'motoboy_stats_v1';
 const STORAGE_UPGRADES = 'motoboy_upgrades_v1';
 const STORAGE_CUSTOM = 'motoboy_custom_v1';
 const STORAGE_SENSITIVITY = 'motoboy_sensitivity_v1';
+const STORAGE_PERF = 'motoboy_perf_v1';
+
+const triggerHaptic = (pattern: number | number[]) => {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // Ignore on unsupported browsers
+  }
+};
 
 const DEFAULT_STATS: PlayerStats = {
   coins: 80, // Starting pocket money for initial tuning
@@ -42,6 +54,10 @@ const DEFAULT_STATS: PlayerStats = {
   rating: 5.0,
   totalGrauPoints: 0,
   distanceTraveledKm: 0,
+  level: 1,
+  fuel: 100,
+  earningsHistory: [],
+  customerReviews: [],
 };
 
 const DEFAULT_UPGRADES: BikeUpgrades = {
@@ -59,10 +75,12 @@ const DEFAULT_CUSTOM: BikeCustomization = {
   helmetColor: '#1e293b',
   neonColor: 'none',
   exhaustType: 'stock',
+  riderOutfit: 'classic',
+  unlockedOutfits: ['classic'],
 };
 
 const SHIFT_SEQUENCE: TimeShift[] = ['manha', 'tarde', 'entardecer', 'noite'];
-const CAMERA_SEQUENCE: CameraMode[] = ['dynamic', 'close', 'first_person', 'helicopter'];
+const CAMERA_SEQUENCE: CameraMode[] = ['dynamic', 'close', 'first_person'];
 
 export default function App() {
   // Game screens: 'title' | 'playing'
@@ -158,7 +176,31 @@ export default function App() {
     heading: number;
     seq: number;
   } | null>(null);
-  const [performanceMode, setPerformanceMode] = useState<'low' | 'high'>('high');
+  const [performanceMode, setPerformanceMode] = useState<PerformanceMode>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_PERF) as PerformanceMode | null;
+      if (saved === 'low' || saved === 'medium' || saved === 'high') return saved;
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined') {
+      const isMobileDevice =
+        window.innerWidth < 900 ||
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0;
+      return isMobileDevice ? 'medium' : 'high';
+    }
+    return 'high';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_PERF, performanceMode);
+    } catch {
+      // ignore
+    }
+  }, [performanceMode]);
+
   const [isTrafficJam, setIsTrafficJam] = useState<boolean>(true);
 
   const weatherConfig = WEATHER_PRESETS[weatherType];
@@ -192,6 +234,8 @@ export default function App() {
     shelterName: '',
     isSevereStorm: false,
     isAquaplaning: false,
+    fuelPct: stats.fuel ?? 100,
+    isSkidding: false,
   });
 
   // District unlock announcement modal
@@ -259,19 +303,50 @@ export default function App() {
     return list;
   }, [stats.completedDeliveries]);
 
-  // Current Delivery Order
+  // Current Delivery Order & Smartphone Available Orders Queue
   const [currentOrder, setCurrentOrder] = useState<DeliveryOrder | null>(null);
+  const [availableOrders, setAvailableOrders] = useState<DeliveryOrder[]>([]);
 
-  // Spawns a new delivery order
+  // Spawns a new delivery order & refreshes available orders queue
   const spawnNewOrder = useCallback(() => {
     const unlocked = getUnlockedDistricts();
     const trunkMultiplier = 1 + (upgrades.trunkLevel - 1) * 0.2;
     const order = generateDeliveryOrder(unlocked, trunkMultiplier);
     setCurrentOrder(order);
+    setAvailableOrders(generateOrderQueue(unlocked, trunkMultiplier, 3));
+    sound.playOrderNotification();
   }, [getUnlockedDistricts, upgrades.trunkLevel]);
+
+  const handleAcceptOrder = useCallback(
+    (order: DeliveryOrder) => {
+      sound.playOrderNotification();
+      setCurrentOrder(order);
+      setAvailableOrders(prev => {
+        const filtered = prev.filter(o => o.id !== order.id);
+        const unlocked = getUnlockedDistricts();
+        const trunkMultiplier = 1 + (upgrades.trunkLevel - 1) * 0.2;
+        return [...filtered, ...generateOrderQueue(unlocked, trunkMultiplier, 1)];
+      });
+      setIsPhoneOpen(false);
+    },
+    [getUnlockedDistricts, upgrades.trunkLevel]
+  );
+
+  const handleDeclineOrder = useCallback(
+    (orderId: string) => {
+      setAvailableOrders(prev => {
+        const filtered = prev.filter(o => o.id !== orderId);
+        const unlocked = getUnlockedDistricts();
+        const trunkMultiplier = 1 + (upgrades.trunkLevel - 1) * 0.2;
+        return [...filtered, ...generateOrderQueue(unlocked, trunkMultiplier, 1)];
+      });
+    },
+    [getUnlockedDistricts, upgrades.trunkLevel]
+  );
 
   const [crashFlash, setCrashFlash] = useState(false);
   const [repairTrigger, setRepairTrigger] = useState(0);
+  const [refuelTrigger, setRefuelTrigger] = useState(0);
   const [reviveTrigger, setReviveTrigger] = useState(0);
   const [mountTrigger, setMountTrigger] = useState(0);
   const [jumpTrigger, setJumpTrigger] = useState(0);
@@ -630,6 +705,7 @@ export default function App() {
       if (code === 'KeyN' || key === 'n' || code === 'KeyE' || key === 'e') {
         if (!inputsRef.current.nitro) {
           inputsRef.current.nitro = true;
+          triggerHaptic(35);
           changed = true;
         }
       }
@@ -750,7 +826,12 @@ export default function App() {
     if (key === 'left') inputsRef.current.left = pressed;
     if (key === 'right') inputsRef.current.right = pressed;
     if (key === 'wheelie') inputsRef.current.wheelie = pressed;
-    if (key === 'nitro') inputsRef.current.nitro = pressed;
+    if (key === 'nitro') {
+      if (pressed && !inputsRef.current.nitro) {
+        triggerHaptic(35);
+      }
+      inputsRef.current.nitro = pressed;
+    }
     if (key === 'horn') inputsRef.current.horn = pressed;
     syncInputs();
   }, [syncInputs]);
@@ -781,6 +862,8 @@ export default function App() {
   const handleOrderDeliver = () => {
     if (!currentOrder || currentOrder.state !== 'to_deliver') return;
 
+    triggerHaptic([60, 40, 100]);
+
     const elapsedSec = currentOrder.timeLimitSeconds - currentOrder.timeRemainingSeconds;
     if (elapsedSec < 60) {
       updateMissionProgress('fast_delivery', 1);
@@ -788,16 +871,29 @@ export default function App() {
     if (timeShift === 'noite' || timeShift === 'entardecer') {
       updateMissionProgress('night_deliveries', 1);
     }
+    const safeDriving = (currentOrder.collisionCount || 0) === 0;
+    if (safeDriving) {
+      updateMissionProgress('safe_deliveries', 1);
+    }
+    updateMissionProgress('weekly_legend', 1);
+    if (currentOrder.isHot || currentOrder.isFragile) {
+      updateMissionProgress('weekly_hot_fragile', 1);
+    }
 
     const shiftMult = 1 + TIME_SHIFT_PRESETS[timeShift].fareBonusPct / 100;
     const baseReward = Math.round(currentOrder.rewardCoins * shiftMult);
     const speedRatio = currentOrder.timeRemainingSeconds / currentOrder.timeLimitSeconds;
-    const earnedTip = Math.round(currentOrder.tipPotential * Math.max(0.2, speedRatio));
+    const ratingFactor = Math.max(0.75, (stats.rating || 5.0) / 5.0);
+    const safeFactor = safeDriving ? 1.25 : Math.max(0.4, 1 - (currentOrder.collisionCount || 0) * 0.25);
+    const earnedTip = Math.round(
+      currentOrder.tipPotential * Math.max(0.25, speedRatio) * ratingFactor * safeFactor
+    );
     const totalEarnings = baseReward + earnedTip;
 
     const prevCompletedCount = stats.completedDeliveries;
     const newCompletedCount = prevCompletedCount + 1;
-    const newRating = Math.min(5.0, Number((stats.rating + 0.05).toFixed(2)));
+    const newLevel = 1 + Math.floor(newCompletedCount / 3);
+    const newRating = Math.min(5.0, Number((stats.rating + (safeDriving ? 0.06 : 0.02)).toFixed(2)));
 
     let targetCount = 3;
     let milestoneLabel = 'Desbloquear Bairro dos Jardins';
@@ -848,11 +944,60 @@ export default function App() {
       setDeliveryCelebration(prev => (prev?.id === celebrationId ? null : prev));
     }, 4200);
 
+    const reviewStars = safeDriving && speedRatio > 0.35 ? 5 : safeDriving ? 4 : 3;
+    const reviewComments =
+      reviewStars === 5
+        ? [
+            'Chegou super rápido e quentinho! Motoboy nota 10!',
+            'Entrega impecável, sem nenhuma avaria! Recomendo!',
+            'Melhor entregador da região, direção super segura!',
+          ]
+        : reviewStars === 4
+        ? ['Chegou certinho, obrigado pela atenção!', 'Boa entrega, dentro do prazo combinado!']
+        : ['Pedido chegou um pouco balançado no caminho, mas tudo certo.'];
+    const comment = reviewComments[Math.floor(Math.random() * reviewComments.length)];
+    const timeStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    const orderTag = currentOrder.isHot
+      ? '🔥 Quente'
+      : currentOrder.isFragile
+      ? '🍷 Frágil'
+      : currentOrder.isUrgent
+      ? '⚡ Urgente'
+      : '📦 Padrão';
+
     setStats(prev => ({
       ...prev,
       coins: prev.coins + totalEarnings,
       completedDeliveries: newCompletedCount,
       rating: newRating,
+      level: newLevel,
+      fuel: telemetry.fuelPct ?? 100,
+      earningsHistory: [
+        {
+          id: `${celebrationId}`,
+          itemTitle: currentOrder.itemTitle,
+          customerName: currentOrder.customerName,
+          icon: currentOrder.icon,
+          baseReward,
+          tip: earnedTip,
+          total: totalEarnings,
+          timestamp: timeStr,
+          orderTag,
+        },
+        ...(prev.earningsHistory || []).slice(0, 14),
+      ],
+      customerReviews: [
+        {
+          id: `${celebrationId}`,
+          customerName: currentOrder.customerName,
+          stars: reviewStars,
+          comment,
+          itemTitle: currentOrder.itemTitle,
+          timestamp: timeStr,
+        },
+        ...(prev.customerReviews || []).slice(0, 14),
+      ],
     }));
 
     if (newCompletedCount === DISTRICTS.jardins.deliveriesNeeded) {
@@ -962,6 +1107,7 @@ export default function App() {
     remainingHealth: number,
     source: 'car' | 'police' | 'pedestrian' | 'bandit_shot' | 'car_on_foot' = 'car'
   ) => {
+    triggerHaptic(120);
     setCrashFlash(true);
     setTimeout(() => setCrashFlash(false), 450);
 
@@ -971,6 +1117,7 @@ export default function App() {
           ? {
               ...prev,
               tipPotential: Math.max(2, Math.round(prev.tipPotential * 0.65)),
+              collisionCount: (prev.collisionCount || 0) + 1,
             }
           : null
       );
@@ -1278,7 +1425,7 @@ export default function App() {
     setReviveTrigger(prev => prev + 1);
   };
 
-  // Quick 1-tap bike repair from HUD
+  // Quick 1-tap bike repair from HUD or Shop
   const handleRepairBike = () => {
     const cost = 20;
     sound.playCash();
@@ -1291,6 +1438,24 @@ export default function App() {
       '🔧 MOTO CONSERTADA (100%)',
       'Motor, carenagem e freios revisados com sucesso!',
       '✨',
+      'deliver'
+    );
+  };
+
+  // Quick 1-tap bike refuel from HUD or Shop
+  const handleRefuelBike = () => {
+    const cost = 15;
+    sound.playCash();
+    setStats(prev => ({
+      ...prev,
+      coins: Math.max(0, prev.coins - cost),
+      fuel: 100,
+    }));
+    setRefuelTrigger(prev => prev + 1);
+    showBanner(
+      '⛽ TANQUE CHEIO (100%)',
+      'Combustível aditivado abastecido com sucesso!',
+      '⛽',
       'deliver'
     );
   };
@@ -1365,11 +1530,12 @@ export default function App() {
     <div
       ref={gameRootRef}
       tabIndex={0}
+      translate="no"
       onPointerDown={() => {
         window.focus();
         gameRootRef.current?.focus();
       }}
-      className="relative w-screen h-screen overflow-hidden bg-slate-950 font-['Plus_Jakarta_Sans',sans-serif] outline-none"
+      className="notranslate fixed inset-0 w-full h-full max-h-[100dvh] overflow-hidden bg-slate-950 font-['Plus_Jakarta_Sans',sans-serif] outline-none select-none touch-none"
     >
       {/* 1. THREE.JS 3D VIEWPORT CONTAINER */}
       <GameCanvas
@@ -1439,6 +1605,8 @@ export default function App() {
         onPassTrainingRing={handlePassTrainingRing}
         onCarCrash={handleCarCrash}
         repairTrigger={repairTrigger}
+        refuelTrigger={refuelTrigger}
+        initialFuel={stats.fuel ?? 100}
         onGrauScore={handleGrauScore}
         onTelemetryUpdate={setTelemetry}
         headlightOn={headlightOn}
@@ -1521,6 +1689,7 @@ export default function App() {
           trainingRingsPassed={trainingRingsPassed}
           onOpenShop={() => setIsShopOpen(true)}
           onRepairBike={handleRepairBike}
+          onRefuelBike={handleRefuelBike}
           onToggleMount={handleToggleMount}
           onTriggerJump={handleTriggerJump}
           onTriggerMelee={handleTriggerMelee}
@@ -1538,7 +1707,10 @@ export default function App() {
           onToggleHeadlight={handleToggleHeadlight}
           missions={missions}
           onOpenMissions={() => setIsMissionsOpen(true)}
-          onOpenPhone={() => setIsPhoneOpen(true)}
+          onOpenPhone={() => {
+            sound.playOrderNotification();
+            setIsPhoneOpen(true);
+          }}
           deliveryCelebration={deliveryCelebration}
           onDismissCelebration={() => setDeliveryCelebration(null)}
         />
@@ -1571,8 +1743,13 @@ export default function App() {
           stats={stats}
           upgrades={upgrades}
           customization={customization}
+          fuelPct={telemetry.fuelPct ?? 100}
+          bikeHealth={telemetry.bikeHealth ?? 100}
           onBuyUpgrade={handleBuyUpgrade}
           onUpdateCustomization={setCustomization}
+          onDeductCoins={amount => setStats(prev => ({ ...prev, coins: Math.max(0, prev.coins - amount) }))}
+          onRefuel={handleRefuelBike}
+          onRepair={handleRepairBike}
           onClose={() => setIsShopOpen(false)}
         />
       )}
@@ -1646,6 +1823,10 @@ export default function App() {
       {isPhoneOpen && (
         <SmartphoneModal
           stats={stats}
+          availableOrders={availableOrders}
+          currentOrder={currentOrder}
+          onAcceptOrder={handleAcceptOrder}
+          onDeclineOrder={handleDeclineOrder}
           onCallPolice={handleCallPolice}
           onCallRival={handleCallRival}
           onInstantRepair={handleRepairBike}

@@ -1,10 +1,14 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BikePhysics, CollisionBox } from './physics';
 import { DELIVERY_POINTS } from './cityMap';
 import { sound } from '../audio/soundEngine';
 import {
   createAsphaltTexture,
   createSidewalkTexture,
+  createLajotaFloorTexture,
+  createDirtFloorTexture,
+  createSandFloorTexture,
   createBuildingWindowTexture,
   createFavelaHouse,
   createRestaurantBuilding,
@@ -53,6 +57,7 @@ export interface CityEnvironment {
     onGhostScare: () => void
   ) => void;
   updateRoadEmissive: (isNight: boolean) => void;
+  updateRoadWetness: (wetness: number) => void;
 }
 
 // Urban Avenue Grid Constants (shared with traffic.ts and rivalAI.ts)
@@ -116,15 +121,19 @@ export function getTrafficSignalPhases(
   }
 }
 
-export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' | 'high' = 'high'): CityEnvironment {
+export function buildCityEnvironment(
+  scene: THREE.Scene,
+  performanceMode: 'low' | 'medium' | 'high' = 'high'
+): CityEnvironment {
   const isLow = performanceMode === 'low';
+
   const collisionBoxes: CollisionBox[] = [];
   const animatables: Array<{ update: (dt: number, time: number) => void }> = [];
 
-  // 1. REALISTIC ARCHITECTURAL GRANITE & INTERLOCKING PAVER SIDEWALK TERRAIN
+  // 1. REALISTIC INTERLOCKING PAVER / FLAGSTONE SIDEWALK TERRAIN (PISO DE LAJOTA URBANO)
   const sidewalkTex = createSidewalkTexture(isLow);
   sidewalkTex.wrapS = sidewalkTex.wrapT = THREE.RepeatWrapping;
-  sidewalkTex.repeat.set(950, 950); // Crisp high-density architectural stone tiling
+  sidewalkTex.repeat.set(550, 550); // Crisp architectural lajota stone proportions without moiré
   sidewalkTex.colorSpace = THREE.SRGBColorSpace;
   sidewalkTex.generateMipmaps = true;
   sidewalkTex.minFilter = THREE.LinearMipmapLinearFilter;
@@ -135,17 +144,19 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
   const groundMat = new THREE.MeshStandardMaterial({
     map: sidewalkTex,
     bumpMap: sidewalkTex,
-    bumpScale: isLow ? 0.015 : 0.038,
+    bumpScale: isLow ? 0.02 : 0.045,
     color: 0xffffff,
-    roughness: 0.8,
-    metalness: 0.0,
+    roughness: 0.78,
+    metalness: 0.02,
   });
   const groundMesh = new THREE.Mesh(groundGeo, groundMat);
   groundMesh.position.y = -0.05; // Prevent coplanar z-fighting and color flashing when camera moves
-  groundMesh.receiveShadow = true;
+  groundMesh.receiveShadow = !isLow;
+  groundMesh.frustumCulled = false;
+  groundMesh.userData.isGiantPlane = true;
   scene.add(groundMesh);
 
-  // 1.5 GREEN URBAN PARK / LAWN PLOTS & ARCHITECTURAL PLAZA FLOORS INSIDE CITY BLOCKS
+  // 1.5 GREEN URBAN PARK / LAWN PLOTS & ARCHITECTURAL PLAZA FLOORS INSIDE CITY BLOCKS (Merged via mergeGeometries!)
   const grassCanvas = document.createElement('canvas');
   grassCanvas.width = 256;
   grassCanvas.height = 256;
@@ -184,20 +195,28 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     { x: 20, z: -102, w: 34, d: 28 },
     { x: 70, z: -56, w: 20, d: 44 },
   ];
+  const borderGeos: THREE.BufferGeometry[] = [];
+  const lawnGeos: THREE.BufferGeometry[] = [];
   greenPlots.forEach(gp => {
-    const border = new THREE.Mesh(
-      new THREE.BoxGeometry(gp.w + 1.2, 0.14, gp.d + 1.2),
-      lawnBorderMat
-    );
-    border.position.set(gp.x, 0.07, gp.z);
-    border.receiveShadow = true;
-    scene.add(border);
+    const bGeo = new THREE.BoxGeometry(gp.w + 1.2, 0.14, gp.d + 1.2);
+    bGeo.translate(gp.x, 0.07, gp.z);
+    borderGeos.push(bGeo);
 
-    const lawn = new THREE.Mesh(new THREE.BoxGeometry(gp.w, 0.16, gp.d), grassMat);
-    lawn.position.set(gp.x, 0.08, gp.z);
-    lawn.receiveShadow = true;
-    scene.add(lawn);
+    const lGeo = new THREE.BoxGeometry(gp.w, 0.16, gp.d);
+    lGeo.translate(gp.x, 0.08, gp.z);
+    lawnGeos.push(lGeo);
   });
+  const mergedBorders = new THREE.Mesh(mergeGeometries(borderGeos), lawnBorderMat);
+  mergedBorders.receiveShadow = !isLow;
+  mergedBorders.geometry.computeBoundingSphere();
+  mergedBorders.userData.isGiantPlane = true;
+  scene.add(mergedBorders);
+
+  const mergedLawns = new THREE.Mesh(mergeGeometries(lawnGeos), grassMat);
+  mergedLawns.receiveShadow = !isLow;
+  mergedLawns.geometry.computeBoundingSphere();
+  mergedLawns.userData.isGiantPlane = true;
+  scene.add(mergedLawns);
 
   // 1.6 ARCHITECTURAL DISTRICT PLAZAS (Centro Granite Compass Plazas, Industrial Concrete Aprons & Nova Metrópole Marble Esplanades)
   const createGranitePlazaTexture = () => {
@@ -326,65 +345,150 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     map: createGranitePlazaTexture(),
     roughness: 0.48,
     metalness: 0.14,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
   const industrialFloorMat = new THREE.MeshStandardMaterial({
     map: createIndustrialFloorTexture(),
     roughness: 0.65,
     metalness: 0.22,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
   const crystalPlazaMat = new THREE.MeshStandardMaterial({
     map: createCrystalPlazaTexture(),
     roughness: 0.32,
     metalness: 0.42,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
 
-  // Place Centro & Jardins Granite Plazas
-  const graniteBlocks = [
-    { x: -40, z: -102, w: 42, d: 42 },
-    { x: -40, z: 18, w: 42, d: 42 },
-    { x: 20, z: 18, w: 42, d: 42 },
-    { x: -40, z: 82, w: 42, d: 40 },
-    { x: 20, z: 82, w: 42, d: 40 },
-  ];
-  graniteBlocks.forEach(b => {
-    const pMesh = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.d), granitePlazaMat);
-    pMesh.rotation.x = -Math.PI / 2;
-    pMesh.position.set(b.x, 0.012, b.z);
-    pMesh.receiveShadow = true;
-    scene.add(pMesh);
+  // Piso de Lajota Colonial / Terracota (Calçamento de Lajota para Centro & Jardins)
+  const lajotaTex = createLajotaFloorTexture(isLow);
+  lajotaTex.repeat.set(6, 6);
+  const lajotaFloorMat = new THREE.MeshStandardMaterial({
+    map: lajotaTex,
+    bumpMap: lajotaTex,
+    bumpScale: isLow ? 0.025 : 0.055,
+    roughness: 0.68,
+    metalness: 0.05,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
 
-  // Place Polo Industrial Heavy-Duty Concrete Aprons
-  const industrialBlocks = [
-    { x: -100, z: -102, w: 42, d: 42 },
-    { x: -100, z: -42, w: 42, d: 42 },
-    { x: -100, z: 18, w: 42, d: 42 },
-    { x: -100, z: 82, w: 42, d: 40 },
-  ];
-  industrialBlocks.forEach(b => {
-    const pMesh = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.d), industrialFloorMat);
-    pMesh.rotation.x = -Math.PI / 2;
-    pMesh.position.set(b.x, 0.012, b.z);
-    pMesh.receiveShadow = true;
-    scene.add(pMesh);
+  // Piso de Terra Batida & Cascalho (Favela / Morro do Sol & Terrenos Rurais)
+  const dirtTex = createDirtFloorTexture(isLow);
+  dirtTex.repeat.set(5, 5);
+  const dirtFloorMat = new THREE.MeshStandardMaterial({
+    map: dirtTex,
+    bumpMap: dirtTex,
+    bumpScale: isLow ? 0.035 : 0.075,
+    roughness: 0.92,
+    metalness: 0.0,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
 
-  // Place Nova Metrópole Obsidian & Gold Marble Esplanades
-  const crystalBlocks = [
-    { x: 350, z: -102, w: 42, d: 42 },
-    { x: 350, z: -42, w: 42, d: 42 },
-    { x: 350, z: 18, w: 42, d: 42 },
-    { x: 350, z: 82, w: 42, d: 40 },
-  ];
-  crystalBlocks.forEach(b => {
-    const pMesh = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.d), crystalPlazaMat);
-    pMesh.rotation.x = -Math.PI / 2;
-    pMesh.position.set(b.x, 0.012, b.z);
-    pMesh.receiveShadow = true;
-    scene.add(pMesh);
+  // Piso de Areia de Praia Dourada (Orla da Praia & Quiosques Costeiros)
+  const beachBlockSandTex = createSandFloorTexture(isLow);
+  beachBlockSandTex.repeat.set(5, 5);
+  const beachBlockSandMat = new THREE.MeshStandardMaterial({
+    map: beachBlockSandTex,
+    bumpMap: beachBlockSandTex,
+    bumpScale: isLow ? 0.025 : 0.05,
+    roughness: 0.88,
+    metalness: 0.0,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
 
-  // 2. DEDICATED ASPHALT AVENUE NETWORK (Vertical & Horizontal 14m Avenues)
+  const addMergedFloorBlocks = (
+    blocks: Array<{ x: number; z: number; w: number; d: number }>,
+    y: number,
+    mat: THREE.Material
+  ) => {
+    const geos = blocks.map(b => {
+      const g = new THREE.PlaneGeometry(b.w, b.d);
+      g.rotateX(-Math.PI / 2);
+      g.translate(b.x, y, b.z);
+      return g;
+    });
+    const m = new THREE.Mesh(mergeGeometries(geos), mat);
+    m.receiveShadow = !isLow;
+    m.geometry.computeBoundingSphere();
+    m.userData.isGiantPlane = true;
+    scene.add(m);
+  };
+
+  // 1) Place Piso de Lajota (Terracotta & Sandstone Flagstone Plazas in Centro & Jardins)
+  addMergedFloorBlocks(
+    [
+      { x: -40, z: -102, w: 44, d: 44 },
+      { x: 20, z: 18, w: 44, d: 44 },
+      { x: 78, z: -42, w: 34, d: 44 },
+      { x: 78, z: -102, w: 34, d: 44 },
+    ],
+    0.012,
+    lajotaFloorMat
+  );
+
+  // Place Centro Compass Medallion Plaza
+  addMergedFloorBlocks([{ x: -40, z: -42, w: 42, d: 42 }], 0.014, granitePlazaMat);
+
+  // 2) Place Piso de Terra Batida (Compacted Earth & Gravel in Favela / Morro do Sol)
+  addMergedFloorBlocks(
+    [
+      { x: -100, z: 18, w: 46, d: 46 },
+      { x: -40, z: 18, w: 46, d: 46 },
+      { x: -100, z: 82, w: 46, d: 48 },
+      { x: -40, z: 82, w: 46, d: 48 },
+      { x: -96, z: 138, w: 54, d: 38 },
+    ],
+    0.012,
+    dirtFloorMat
+  );
+
+  // 3) Place Piso de Areia de Praia (Golden Coastal Sand in Orla da Praia & Kiosk Zone)
+  addMergedFloorBlocks(
+    [
+      { x: 20, z: 82, w: 46, d: 46 },
+      { x: 74, z: 18, w: 34, d: 46 },
+      { x: 74, z: 82, w: 34, d: 52 },
+      { x: 74, z: 136, w: 34, d: 42 },
+    ],
+    0.013,
+    beachBlockSandMat
+  );
+
+  // 4) Place Polo Industrial Heavy-Duty Concrete & Asphalt Aprons
+  addMergedFloorBlocks(
+    [
+      { x: -100, z: -102, w: 44, d: 44 },
+      { x: -100, z: -42, w: 44, d: 44 },
+    ],
+    0.012,
+    industrialFloorMat
+  );
+
+  // 5) Place Nova Metrópole Obsidian & Gold Marble Esplanades
+  addMergedFloorBlocks(
+    [
+      { x: 350, z: -102, w: 42, d: 42 },
+      { x: 350, z: -42, w: 42, d: 42 },
+      { x: 350, z: 18, w: 42, d: 42 },
+      { x: 350, z: 82, w: 42, d: 40 },
+    ],
+    0.012,
+    crystalPlazaMat
+  );
+
+  // 2. DEDICATED ASPHALT AVENUE NETWORK (Vertical & Horizontal 14m Avenues - Merged into 2 Draw Calls!)
   const vRoadTextures = createAsphaltTexture(isLow);
 
   // Configure Vertical Road Textures (220 tiles across 5000m = ultra-crisp 22.7m per tile!)
@@ -401,16 +505,23 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     emissiveIntensity: 0.14,
     roughness: 0.58,
     metalness: 0.18,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
 
+  const vRoadGeos: THREE.BufferGeometry[] = [];
   VERTICAL_AVENUES_X.forEach(ax => {
     const vGeo = new THREE.PlaneGeometry(AVENUE_WIDTH, 5000);
     vGeo.rotateX(-Math.PI / 2);
-    const vMesh = new THREE.Mesh(vGeo, vRoadMat);
-    vMesh.position.set(ax, 0.018, 0);
-    vMesh.receiveShadow = true;
-    scene.add(vMesh);
+    vGeo.translate(ax, 0.022, 0);
+    vRoadGeos.push(vGeo);
   });
+  const vRoadsMerged = new THREE.Mesh(mergeGeometries(vRoadGeos), vRoadMat);
+  vRoadsMerged.receiveShadow = !isLow;
+  vRoadsMerged.frustumCulled = false;
+  vRoadsMerged.userData.isGiantPlane = true;
+  scene.add(vRoadsMerged);
 
   // Horizontal Avenues (East-West along X)
   const hRoadTextures = createAsphaltTexture(isLow);
@@ -429,40 +540,43 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     emissiveIntensity: 0.14,
     roughness: 0.62,
     metalness: 0.15,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
   });
 
+  const hRoadGeos: THREE.BufferGeometry[] = [];
   HORIZONTAL_AVENUES_Z.forEach(az => {
     if (az === -15) {
       // Main Intercity Highway Avenue Z = -15 crosses the Ocean Bay via the 3D Cable-Stayed Bridge!
       const hGeo = new THREE.PlaneGeometry(AVENUE_WIDTH, 5000);
       hGeo.rotateX(-Math.PI / 2);
       hGeo.rotateY(Math.PI / 2);
-      const hMesh = new THREE.Mesh(hGeo, hRoadMat);
-      hMesh.position.set(0, 0.022, az);
-      hMesh.receiveShadow = true;
-      scene.add(hMesh);
+      hGeo.translate(0, 0.028, az);
+      hRoadGeos.push(hGeo);
     } else {
       // West City segment (stops before the Ocean Bay at X = 90)
       const westLen = 2590;
       const westGeo = new THREE.PlaneGeometry(AVENUE_WIDTH, westLen);
       westGeo.rotateX(-Math.PI / 2);
       westGeo.rotateY(Math.PI / 2);
-      const westMesh = new THREE.Mesh(westGeo, hRoadMat);
-      westMesh.position.set(-2500 + westLen / 2, 0.022, az);
-      westMesh.receiveShadow = true;
-      scene.add(westMesh);
+      westGeo.translate(-2500 + westLen / 2, 0.028, az);
+      hRoadGeos.push(westGeo);
 
       // East City ("Nova Metrópole") segment (starts after the Ocean Bay at X = 260)
       const eastLen = 2240;
       const eastGeo = new THREE.PlaneGeometry(AVENUE_WIDTH, eastLen);
       eastGeo.rotateX(-Math.PI / 2);
       eastGeo.rotateY(Math.PI / 2);
-      const eastMesh = new THREE.Mesh(eastGeo, hRoadMat);
-      eastMesh.position.set(260 + eastLen / 2, 0.022, az);
-      eastMesh.receiveShadow = true;
-      scene.add(eastMesh);
+      eastGeo.translate(260 + eastLen / 2, 0.028, az);
+      hRoadGeos.push(eastGeo);
     }
   });
+  const hRoadsMerged = new THREE.Mesh(mergeGeometries(hRoadGeos), hRoadMat);
+  hRoadsMerged.receiveShadow = !isLow;
+  hRoadsMerged.frustumCulled = false;
+  hRoadsMerged.userData.isGiantPlane = true;
+  scene.add(hRoadsMerged);
 
   // 2.5 REALISTIC INTERSECTION CROSSWALKS (Faixas de Pedestre + Caixa Amarela Anti-Bloqueio + Piso Tátil)
   const interCanvas = document.createElement('canvas');
@@ -584,31 +698,48 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     emissiveIntensity: 0.1,
     roughness: 0.68,
     metalness: 0.14,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
   });
 
-  // 2.6 STREET DEBRIS & DETAILS (High Quality Only)
+  // 2.6 STREET DEBRIS & DETAILS (GPU InstancedMesh = 1 Draw Call for 200 items!)
   if (!isLow) {
     const debrisColors = [0x94a3b8, 0x475569, 0x1e293b, 0xa3e635]; // Concrete, dark trash, dead leaves
     const debrisGeo = new THREE.PlaneGeometry(0.15, 0.15);
+    debrisGeo.rotateX(-Math.PI / 2);
+    const debrisMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -5,
+      polygonOffsetUnits: -5,
+    });
+    const debrisInstanced = new THREE.InstancedMesh(debrisGeo, debrisMat, 200);
+    debrisInstanced.frustumCulled = false;
+    debrisInstanced.renderOrder = 2;
+
+    const dummy = new THREE.Object3D();
+    const tempColor = new THREE.Color();
     for (let i = 0; i < 200; i++) {
       const isLeaf = Math.random() < 0.3;
-      const debris = new THREE.Mesh(
-        debrisGeo,
-        new THREE.MeshBasicMaterial({ 
-          color: isLeaf ? 0x15803d : debrisColors[Math.floor(Math.random() * debrisColors.length)],
-          transparent: true,
-          opacity: 0.8 
-        })
-      );
-      // Spawn near avenues/intersections
+      const colHex = isLeaf
+        ? 0x15803d
+        : debrisColors[Math.floor(Math.random() * debrisColors.length)];
       const aveX = VERTICAL_AVENUES_X[Math.floor(Math.random() * VERTICAL_AVENUES_X.length)];
       const x = aveX + (Math.random() - 0.5) * 16;
       const z = (Math.random() - 0.5) * 300;
-      debris.position.set(x, 0.03, z);
-      debris.rotation.x = -Math.PI / 2;
-      debris.rotation.z = Math.random() * Math.PI;
-      scene.add(debris);
+      dummy.position.set(x, 0.04, z);
+      dummy.rotation.set(0, Math.random() * Math.PI, 0);
+      dummy.updateMatrix();
+      debrisInstanced.setMatrixAt(i, dummy.matrix);
+      debrisInstanced.setColorAt(i, tempColor.setHex(colHex));
     }
+    debrisInstanced.instanceMatrix.needsUpdate = true;
+    if (debrisInstanced.instanceColor) debrisInstanced.instanceColor.needsUpdate = true;
+    scene.add(debrisInstanced);
   }
 
   // 2.8 DYNAMIC 3D TRAFFIC LIGHT GANTRIES (SEMÁFOROS COM CRONÔMETRO DIGITAL) AT ALL 12 INTERSECTIONS
@@ -619,6 +750,7 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     hSignal: TrafficLightGroup;
   }> = [];
 
+  const intersectionGeos: THREE.BufferGeometry[] = [];
   VERTICAL_AVENUES_X.forEach((ax, aveIdx) => {
     HORIZONTAL_AVENUES_Z.forEach((az, zIdx) => {
       const isCoreIntersection =
@@ -627,10 +759,8 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
 
       const iGeo = new THREE.PlaneGeometry(AVENUE_WIDTH + 1.8, AVENUE_WIDTH + 1.8);
       iGeo.rotateX(-Math.PI / 2);
-      const iMesh = new THREE.Mesh(iGeo, interMat);
-      iMesh.position.set(ax, 0.026, az);
-      iMesh.receiveShadow = !isLow;
-      scene.add(iMesh);
+      iGeo.translate(ax, 0.036, az);
+      intersectionGeos.push(iGeo);
 
       if (!isCoreIntersection) return;
       if (isLow && (aveIdx + zIdx) % 2 !== 0) return;
@@ -665,6 +795,14 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     });
   });
 
+  if (intersectionGeos.length > 0) {
+    const intersectionsMerged = new THREE.Mesh(mergeGeometries(intersectionGeos), interMat);
+    intersectionsMerged.receiveShadow = !isLow;
+    intersectionsMerged.frustumCulled = false;
+    intersectionsMerged.userData.isGiantPlane = true;
+    scene.add(intersectionsMerged);
+  }
+
   // Animate all 24 Traffic Light Gantries with their live LED countdown timers!
   animatables.push({
     update: (_dt, time) => {
@@ -676,8 +814,63 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     },
   });
 
-  // 3. COMMERCIAL RESTAURANTS (Hamburguerias, Pizzarias, Restaurantes, Sushi, Açaí, Lanchonetes)
-  DELIVERY_POINTS.forEach(point => {
+  // 3. COMMERCIAL RESTAURANTS (Hamburguerias, Pizzarias, Padaria, Farmácia, Mercado, Sushi, Açaí) & WAVING 3D CUSTOMERS
+  const extraStorefronts: typeof DELIVERY_POINTS = [
+    {
+      id: 'store_padaria_centro',
+      name: 'Padaria & Confeitaria Pão Dourado',
+      shortSign: 'PADARIA PÃO DOURADO',
+      categoryLabel: 'Padaria & Café',
+      category: 'lanchonete',
+      type: 'restaurant',
+      districtId: 'centro',
+      x: -15.5,
+      z: -95,
+      buildingOffset: { dx: -7.5, dz: 0, rotationY: Math.PI / 2 },
+      primaryColor: 0xb45309,
+      accentColor: 0xfacc15,
+      icon: '🥖',
+    },
+    {
+      id: 'store_farmacia_centro',
+      name: 'Farmácia & Drogaria Vida 24h',
+      shortSign: 'FARMÁCIA VIDA 24H',
+      categoryLabel: 'Farmácia Express',
+      category: 'restaurante',
+      type: 'restaurant',
+      districtId: 'centro',
+      x: -5.5,
+      z: 18,
+      buildingOffset: { dx: 7.5, dz: 0, rotationY: -Math.PI / 2 },
+      primaryColor: 0x0f172a,
+      accentColor: 0x10b981,
+      icon: '💊',
+    },
+    {
+      id: 'store_mercado_jardins',
+      name: 'Supermercado & Hortifruti Bom Preço',
+      shortSign: 'MERCADO BOM PREÇO',
+      categoryLabel: 'Supermercado Delivery',
+      category: 'restaurante',
+      type: 'restaurant',
+      districtId: 'jardins',
+      x: 44.5,
+      z: -95,
+      buildingOffset: { dx: -7.5, dz: 0, rotationY: Math.PI / 2 },
+      primaryColor: 0x047857,
+      accentColor: 0xf97316,
+      icon: '🛒',
+    },
+  ];
+
+  const customerActors: Array<{
+    mesh: PedestrianGroup;
+    x: number;
+    z: number;
+    phase: number;
+  }> = [];
+
+  [...DELIVERY_POINTS, ...extraStorefronts].forEach((point, ptIdx) => {
     if (point.type === 'restaurant') {
       const restGroup = createRestaurantBuilding(point, isLow);
       scene.add(restGroup);
@@ -722,11 +915,38 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
           map: custTex,
           transparent: true,
           depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -5,
+          polygonOffsetUnits: -5,
         })
       );
       custBay.rotation.x = -Math.PI / 2;
-      custBay.position.set(point.x, 0.04, point.z);
+      custBay.position.set(point.x, 0.046, point.z);
+      custBay.renderOrder = 3;
+      custBay.frustumCulled = false;
       scene.add(custBay);
+
+      // 3D Waiting Customer Actor on the sidewalk beside the delivery bay (waves when player approaches!)
+      const custSkins = [0xfde68a, 0xf59e0b, 0xd97706, 0x92400e, 0xfcd34d];
+      const custPants = [0x1e293b, 0x1e3a8a, 0x27272a, 0x334155];
+      const custMesh = createPedestrian(
+        point.primaryColor || 0x10b981,
+        custPants[ptIdx % custPants.length],
+        custSkins[ptIdx % custSkins.length],
+        ptIdx % 2 === 0,
+        isLow,
+        ptIdx + 3
+      );
+      const curbOffsetX = point.x < 0 ? -2.3 : 2.3;
+      custMesh.position.set(point.x + curbOffsetX, 0, point.z);
+      custMesh.rotation.y = curbOffsetX < 0 ? Math.PI / 2 : -Math.PI / 2;
+      scene.add(custMesh);
+      customerActors.push({
+        mesh: custMesh,
+        x: point.x + curbOffsetX,
+        z: point.z,
+        phase: ptIdx * 1.1,
+      });
     }
   });
 
@@ -739,62 +959,46 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     metalness: 0.78,
     transparent: true,
     opacity: 0.92,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
   const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
   oceanMesh.position.set(175, 0.025, 0);
+  oceanMesh.renderOrder = 1;
+  oceanMesh.frustumCulled = false;
+  oceanMesh.userData.isGiantPlane = true;
   scene.add(oceanMesh);
 
-  // West Beach Sand Strip (Orla da Praia, X = 84 to 98) & East Beach Sand Strip (Nova Metrópole, X = 252 to 264)
-  const sandCanvas = document.createElement('canvas');
-  sandCanvas.width = 512;
-  sandCanvas.height = 512;
-  const sCtx = sandCanvas.getContext('2d')!;
-  const sandGrad = sCtx.createLinearGradient(0, 0, 512, 0);
-  sandGrad.addColorStop(0, '#fef08a');
-  sandGrad.addColorStop(0.65, '#fde047');
-  sandGrad.addColorStop(1, '#ca8a04'); // Wet shoreline edge
-  sCtx.fillStyle = sandGrad;
-  sCtx.fillRect(0, 0, 512, 512);
-  // Wind-blown sand ripples & shell speckles
-  sCtx.strokeStyle = 'rgba(202, 138, 4, 0.25)';
-  sCtx.lineWidth = 2;
-  for (let y = 0; y < 512; y += 16) {
-    sCtx.beginPath();
-    for (let x = 0; x <= 512; x += 32) {
-      const wy = y + Math.sin(x * 0.04 + y) * 3;
-      if (x === 0) sCtx.moveTo(x, wy);
-      else sCtx.lineTo(x, wy);
-    }
-    sCtx.stroke();
-  }
-  for (let i = 0; i < 4000; i++) {
-    sCtx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(161,98,7,0.22)';
-    sCtx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
-  }
-  const sandTex = new THREE.CanvasTexture(sandCanvas);
-  sandTex.wrapS = sandTex.wrapT = THREE.RepeatWrapping;
-  sandTex.repeat.set(2, 36);
-  sandTex.colorSpace = THREE.SRGBColorSpace;
+  // West Beach Sand Strip (Orla da Praia, X = 80 to 99) & East Beach Sand Strip (Nova Metrópole, X = 250 to 268)
+  const sandTex = createSandFloorTexture(isLow);
+  sandTex.repeat.set(3, 38);
 
   const sandMat = new THREE.MeshStandardMaterial({
     map: sandTex,
     bumpMap: sandTex,
-    bumpScale: 0.03,
+    bumpScale: 0.04,
     roughness: 0.86,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
-  const westSandN = new THREE.Mesh(new THREE.PlaneGeometry(16, 290), sandMat);
-  westSandN.rotation.x = -Math.PI / 2;
-  westSandN.position.set(91, 0.03, -170);
-  const westSandS = new THREE.Mesh(new THREE.PlaneGeometry(16, 310), sandMat);
-  westSandS.rotation.x = -Math.PI / 2;
-  westSandS.position.set(91, 0.03, 150);
-  const eastSandN = new THREE.Mesh(new THREE.PlaneGeometry(14, 290), sandMat);
-  eastSandN.rotation.x = -Math.PI / 2;
-  eastSandN.position.set(258, 0.03, -170);
-  const eastSandS = new THREE.Mesh(new THREE.PlaneGeometry(14, 310), sandMat);
-  eastSandS.rotation.x = -Math.PI / 2;
-  eastSandS.position.set(258, 0.03, 150);
-  scene.add(westSandN, westSandS, eastSandN, eastSandS);
+  const sandStripGeos = [
+    { w: 22, d: 290, x: 89, z: -170 },
+    { w: 22, d: 310, x: 89, z: 150 },
+    { w: 20, d: 290, x: 259, z: -170 },
+    { w: 20, d: 310, x: 259, z: 150 },
+  ].map(s => {
+    const g = new THREE.PlaneGeometry(s.w, s.d);
+    g.rotateX(-Math.PI / 2);
+    g.translate(s.x, 0.032, s.z);
+    return g;
+  });
+  const mergedCoastalSand = new THREE.Mesh(mergeGeometries(sandStripGeos), sandMat);
+  mergedCoastalSand.userData.isGiantPlane = true;
+  mergedCoastalSand.geometry.computeBoundingSphere();
+  scene.add(mergedCoastalSand);
 
   // Iconic Brazilian Copacabana Portuguese Wave Mosaic Boardwalk + Red Coastal Bike Path (Calçadão de Pedra Portuguesa + Ciclovia)
   const copaCanvas = document.createElement('canvas');
@@ -850,20 +1054,25 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     bumpScale: 0.025,
     roughness: 0.62,
     metalness: 0.08,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
   });
-  const westBoardwalkN = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 290), copaMat);
-  westBoardwalkN.rotation.x = -Math.PI / 2;
-  westBoardwalkN.position.set(80.2, 0.034, -170);
-  const westBoardwalkS = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 310), copaMat);
-  westBoardwalkS.rotation.x = -Math.PI / 2;
-  westBoardwalkS.position.set(80.2, 0.034, 150);
-  const eastBoardwalkN = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 290), copaMat);
-  eastBoardwalkN.rotation.x = -Math.PI / 2;
-  eastBoardwalkN.position.set(268.2, 0.034, -170);
-  const eastBoardwalkS = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 310), copaMat);
-  eastBoardwalkS.rotation.x = -Math.PI / 2;
-  eastBoardwalkS.position.set(268.2, 0.034, 150);
-  scene.add(westBoardwalkN, westBoardwalkS, eastBoardwalkN, eastBoardwalkS);
+  const boardwalkGeos = [
+    { x: 80.2, z: -170, d: 290 },
+    { x: 80.2, z: 150, d: 310 },
+    { x: 268.2, z: -170, d: 290 },
+    { x: 268.2, z: 150, d: 310 },
+  ].map(bw => {
+    const g = new THREE.PlaneGeometry(7.2, bw.d);
+    g.rotateX(-Math.PI / 2);
+    g.translate(bw.x, 0.038, bw.z);
+    return g;
+  });
+  const mergedBoardwalks = new THREE.Mesh(mergeGeometries(boardwalkGeos), copaMat);
+  mergedBoardwalks.userData.isGiantPlane = true;
+  mergedBoardwalks.geometry.computeBoundingSphere();
+  scene.add(mergedBoardwalks);
 
   // Solid Coastal Seawall Barriers along the Ocean Channel (leaving the Z = -15 Bridge Corridor open!)
   collisionBoxes.push(
@@ -917,14 +1126,18 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     emissiveIntensity: 0.18,
     roughness: 0.55,
     metalness: 0.22,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
   });
   const bridgeDeckRoad = new THREE.Mesh(
     new THREE.PlaneGeometry(bridgeLength, AVENUE_WIDTH),
     bridgeRoadMat
   );
   bridgeDeckRoad.rotation.x = -Math.PI / 2;
-  bridgeDeckRoad.position.set(bridgeCenterX, 0.062, bridgeCenterZ);
+  bridgeDeckRoad.position.set(bridgeCenterX, 0.068, bridgeCenterZ);
   bridgeDeckRoad.receiveShadow = true;
+  bridgeDeckRoad.frustumCulled = false;
   bridgeGroup.add(bridgeDeckRoad);
 
   // Concrete Box-Girder Under-Deck Structure & Transverse Steel Expansion Joints
@@ -1334,8 +1547,8 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     { x: -40, z: -104, w: 18, d: 18, h: 58 },
     { x: -102, z: -42, w: 18, d: 18, h: 50 },
     { x: -40, z: -42, w: 18, d: 18, h: 66 },
-    { x: -102, z: -122, w: 16, d: 14, h: 40 },
-    { x: -108, z: 16, w: 16, d: 16, h: 38 },
+    { x: -102, z: -124, w: 16, d: 14, h: 40 },
+    { x: -40, z: -124, w: 16, d: 14, h: 42 },
   ].filter((_, i) => !isLow || i % 2 === 0);
 
   const podiumMat = new THREE.MeshStandardMaterial({
@@ -1417,11 +1630,11 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
   const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.85 });
 
   const villaPositions = [
-    { x: 18, z: -104 },
-    { x: 72, z: -104 },
-    { x: 16, z: -42 },
-    { x: 72, z: -42 },
-    { x: 72, z: -72 },
+    { x: 10, z: -104 },
+    { x: 31, z: -104 },
+    { x: 10, z: -42 },
+    { x: 31, z: -42 },
+    { x: 68, z: 18 },
   ].filter((_, i) => !isLow || i % 2 === 0);
 
   const villaDoorMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.6 });
@@ -1561,34 +1774,45 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     { x: 60, z: -56 },
   ].filter((_, i) => !isLow || i % 2 === 0);
 
-  treeCoords.forEach(tc => {
-    const tree = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.48, 3.0, 10), treeTrunkMat);
-    trunk.position.y = 1.5;
-    trunk.castShadow = true;
-    trunk.receiveShadow = true;
+  // Urban Trees rendered via GPU InstancedMesh (4 Draw Calls for all 13 trees!)
+  const sharedPlanterMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.85 });
+  const treePlanterGeo = new THREE.CylinderGeometry(1.15, 1.2, 0.38, 10);
+  treePlanterGeo.translate(0, 0.19, 0);
 
-    const crown1 = new THREE.Mesh(new THREE.SphereGeometry(1.85, 14, 12), treeFoliageMat);
-    crown1.position.y = 3.6;
-    crown1.castShadow = true;
+  const treeTrunkGeo = new THREE.CylinderGeometry(0.32, 0.48, 3.0, 8);
+  treeTrunkGeo.translate(0, 1.5, 0);
 
-    const crown2 = new THREE.Mesh(new THREE.SphereGeometry(1.35, 12, 10), treeFoliageLightMat);
-    crown2.position.set(0.55, 4.5, 0.35);
-    crown2.castShadow = true;
+  const crownMainGeo1 = new THREE.SphereGeometry(1.85, 10, 8);
+  crownMainGeo1.translate(0, 3.6, 0);
+  const crownMainGeo3 = new THREE.SphereGeometry(1.2, 8, 8);
+  crownMainGeo3.translate(-0.5, 4.1, -0.4);
+  const treeCrownDarkGeo = mergeGeometries([crownMainGeo1, crownMainGeo3]);
 
-    const crown3 = new THREE.Mesh(new THREE.SphereGeometry(1.2, 10, 10), treeFoliageMat);
-    crown3.position.set(-0.5, 4.1, -0.4);
-    crown3.castShadow = true;
+  const treeCrownLightGeo = new THREE.SphereGeometry(1.35, 8, 8);
+  treeCrownLightGeo.translate(0.55, 4.5, 0.35);
 
-    const planter = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.15, 1.2, 0.38, 12),
-      new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.85 })
-    );
-    planter.position.y = 0.19;
+  const treeCount = treeCoords.length;
+  const treePlanterInst = new THREE.InstancedMesh(treePlanterGeo, sharedPlanterMat, treeCount);
+  const treeTrunkInst = new THREE.InstancedMesh(treeTrunkGeo, treeTrunkMat, treeCount);
+  const treeCrownDarkInst = new THREE.InstancedMesh(treeCrownDarkGeo, treeFoliageMat, treeCount);
+  const treeCrownLightInst = new THREE.InstancedMesh(treeCrownLightGeo, treeFoliageLightMat, treeCount);
 
-    tree.add(planter, trunk, crown1, crown2, crown3);
-    tree.position.set(tc.x, 0, tc.z);
-    scene.add(tree);
+  treeTrunkInst.castShadow = !isLow;
+  treeCrownDarkInst.castShadow = !isLow;
+  treePlanterInst.frustumCulled = false;
+  treeTrunkInst.frustumCulled = false;
+  treeCrownDarkInst.frustumCulled = false;
+  treeCrownLightInst.frustumCulled = false;
+
+  const instDummy = new THREE.Object3D();
+  treeCoords.forEach((tc, idx) => {
+    instDummy.position.set(tc.x, 0, tc.z);
+    instDummy.rotation.set(0, idx * 0.7, 0);
+    instDummy.updateMatrix();
+    treePlanterInst.setMatrixAt(idx, instDummy.matrix);
+    treeTrunkInst.setMatrixAt(idx, instDummy.matrix);
+    treeCrownDarkInst.setMatrixAt(idx, instDummy.matrix);
+    treeCrownLightInst.setMatrixAt(idx, instDummy.matrix);
 
     collisionBoxes.push({
       minX: tc.x - 1.35,
@@ -1597,6 +1821,11 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
       maxZ: tc.z + 1.35,
     });
   });
+  treePlanterInst.instanceMatrix.needsUpdate = true;
+  treeTrunkInst.instanceMatrix.needsUpdate = true;
+  treeCrownDarkInst.instanceMatrix.needsUpdate = true;
+  treeCrownLightInst.instanceMatrix.needsUpdate = true;
+  scene.add(treePlanterInst, treeTrunkInst, treeCrownDarkInst, treeCrownLightInst);
 
   // 8. DISTRICT 3: FAVELA / MORRO DO SOL
   const favelaColors = [0xd97706, 0xb45309, 0x0284c7, 0x16a34a, 0x9333ea, 0xef4444, 0xf59e0b];
@@ -1626,25 +1855,24 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     });
   });
 
-  // 9. DISTRICT 4: ORLA DA PRAIA (Palm Trees & Kiosks)
+  // 9. DISTRICT 4: ORLA DA PRAIA (Palm Trees & Kiosks - Shared Geometries & GPU InstancedMesh!)
   const kioskPositions = [
     { x: 74, z: 18 },
     { x: 74, z: 70 },
     { x: 74, z: 114 },
   ];
+  const sharedKioskWoodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 });
+  const sharedKioskThatchMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.95 });
+  const sharedKioskCounterGeo = new THREE.CylinderGeometry(2.5, 2.5, 1.6, 12);
+  const sharedKioskRoofGeo = new THREE.ConeGeometry(3.8, 1.8, 12);
 
   kioskPositions.forEach(k => {
     const kioskGroup = new THREE.Group();
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 });
-    const thatchMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.95 });
-
-    const counterGeo = new THREE.CylinderGeometry(2.5, 2.5, 1.6, 12);
-    const counter = new THREE.Mesh(counterGeo, woodMat);
+    const counter = new THREE.Mesh(sharedKioskCounterGeo, sharedKioskWoodMat);
     counter.position.y = 0.8;
     kioskGroup.add(counter);
 
-    const roofGeo = new THREE.ConeGeometry(3.8, 1.8, 12);
-    const roof = new THREE.Mesh(roofGeo, thatchMat);
+    const roof = new THREE.Mesh(sharedKioskRoofGeo, sharedKioskThatchMat);
     roof.position.y = 2.5;
     kioskGroup.add(roof);
 
@@ -1659,37 +1887,44 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     });
   });
 
-  // Palm trees along beach boardwalk
+  // Palm trees along beach boardwalk rendered via GPU InstancedMesh (3 Draw Calls total!)
   const palmMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.9 });
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.6 });
   const palmZCoords = [5, 18, 30, 60, 72, 82, 110, 122].filter((_, i) => !isLow || i % 2 === 0);
 
-  palmZCoords.forEach(z => {
-    const palm = new THREE.Group();
-    const trunkGeo = new THREE.CylinderGeometry(0.28, 0.42, 6, 10);
-    const trunk = new THREE.Mesh(trunkGeo, palmMat);
-    trunk.position.y = 3;
-    trunk.castShadow = true;
-    palm.add(trunk);
+  const palmTrunkGeo = new THREE.CylinderGeometry(0.28, 0.42, 6, 8);
+  palmTrunkGeo.translate(0, 3, 0);
 
-    const planter = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.0, 1.05, 0.3, 12),
-      new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.85 })
-    );
-    planter.position.y = 0.15;
-    palm.add(planter);
+  const palmPlanterGeo = new THREE.CylinderGeometry(1.0, 1.05, 0.3, 10);
+  palmPlanterGeo.translate(0, 0.15, 0);
 
-    for (let i = 0; i < 6; i++) {
-      const leafGeo = new THREE.ConeGeometry(0.8, 3.5, 5);
-      leafGeo.rotateX(Math.PI / 3);
-      leafGeo.rotateY((i * Math.PI) / 3);
-      const leaf = new THREE.Mesh(leafGeo, leafMat);
-      leaf.position.y = 5.8;
-      palm.add(leaf);
-    }
+  const palmLeafGeos: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 6; i++) {
+    const lGeo = new THREE.ConeGeometry(0.8, 3.5, 5);
+    lGeo.rotateX(Math.PI / 3);
+    lGeo.rotateY((i * Math.PI) / 3);
+    lGeo.translate(0, 5.8, 0);
+    palmLeafGeos.push(lGeo);
+  }
+  const mergedPalmCrownGeo = mergeGeometries(palmLeafGeos);
 
-    palm.position.set(63, 0, z);
-    scene.add(palm);
+  const palmCount = palmZCoords.length;
+  const palmTrunkInst = new THREE.InstancedMesh(palmTrunkGeo, palmMat, palmCount);
+  const palmPlanterInst = new THREE.InstancedMesh(palmPlanterGeo, sharedPlanterMat, palmCount);
+  const palmCrownInst = new THREE.InstancedMesh(mergedPalmCrownGeo, leafMat, palmCount);
+
+  palmTrunkInst.castShadow = !isLow;
+  palmTrunkInst.frustumCulled = false;
+  palmPlanterInst.frustumCulled = false;
+  palmCrownInst.frustumCulled = false;
+
+  palmZCoords.forEach((z, idx) => {
+    instDummy.position.set(63, 0, z);
+    instDummy.rotation.set(0, idx * 0.5, 0);
+    instDummy.updateMatrix();
+    palmTrunkInst.setMatrixAt(idx, instDummy.matrix);
+    palmPlanterInst.setMatrixAt(idx, instDummy.matrix);
+    palmCrownInst.setMatrixAt(idx, instDummy.matrix);
 
     collisionBoxes.push({
       minX: 63 - 1.3,
@@ -1698,8 +1933,12 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
       maxZ: z + 1.3,
     });
   });
+  palmTrunkInst.instanceMatrix.needsUpdate = true;
+  palmPlanterInst.instanceMatrix.needsUpdate = true;
+  palmCrownInst.instanceMatrix.needsUpdate = true;
+  scene.add(palmTrunkInst, palmPlanterInst, palmCrownInst);
 
-  // 10. MODERN CANTILEVERED COBRA-HEAD LED STREETLIGHTS ON SIDEWALKS
+  // 10. MODERN CANTILEVERED COBRA-HEAD LED STREETLIGHTS ON SIDEWALKS (GPU InstancedMesh = 4 Draw Calls total!)
   const lampPositions = [
     { x: -61, z: -50, rotY: Math.PI },
     { x: -79, z: -50, rotY: 0 },
@@ -1721,30 +1960,41 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
   });
   const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
 
-  lampPositions.forEach(l => {
-    const lamp = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 6.2, 8), lampPoleMat);
-    pole.position.y = 3.1;
-    pole.castShadow = true;
-    lamp.add(pole);
+  const poleGeo = new THREE.CylinderGeometry(0.11, 0.16, 6.2, 8);
+  poleGeo.translate(0, 3.1, 0);
 
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 2.0, 8), lampPoleMat);
-    arm.rotation.z = -Math.PI / 2.4;
-    arm.position.set(0.85, 6.0, 0);
-    lamp.add(arm);
+  const armGeo = new THREE.CylinderGeometry(0.06, 0.09, 2.0, 8);
+  armGeo.rotateZ(-Math.PI / 2.4);
+  armGeo.translate(0.85, 6.0, 0);
 
-    const fixture = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.14, 0.32), lampPoleMat);
-    fixture.position.set(1.75, 6.22, 0);
-    lamp.add(fixture);
+  const fixtureGeo = new THREE.BoxGeometry(0.65, 0.14, 0.32);
+  fixtureGeo.translate(1.75, 6.22, 0);
 
-    const bulb = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.24), lampGlowMat);
-    bulb.rotation.x = Math.PI / 2;
-    bulb.position.set(1.75, 6.14, 0);
-    lamp.add(bulb);
+  const bulbGeo = new THREE.PlaneGeometry(0.5, 0.24);
+  bulbGeo.rotateX(Math.PI / 2);
+  bulbGeo.translate(1.75, 6.14, 0);
 
-    lamp.position.set(l.x, 0, l.z);
-    lamp.rotation.y = l.rotY;
-    scene.add(lamp);
+  const lampCount = lampPositions.length;
+  const poleInst = new THREE.InstancedMesh(poleGeo, lampPoleMat, lampCount);
+  const armInst = new THREE.InstancedMesh(armGeo, lampPoleMat, lampCount);
+  const fixtureInst = new THREE.InstancedMesh(fixtureGeo, lampPoleMat, lampCount);
+  const bulbInst = new THREE.InstancedMesh(bulbGeo, lampGlowMat, lampCount);
+
+  poleInst.castShadow = !isLow;
+  poleInst.frustumCulled = false;
+  armInst.frustumCulled = false;
+  fixtureInst.frustumCulled = false;
+  bulbInst.frustumCulled = false;
+
+  const lampDummy = new THREE.Object3D();
+  lampPositions.forEach((l, idx) => {
+    lampDummy.position.set(l.x, 0, l.z);
+    lampDummy.rotation.set(0, l.rotY, 0);
+    lampDummy.updateMatrix();
+    poleInst.setMatrixAt(idx, lampDummy.matrix);
+    armInst.setMatrixAt(idx, lampDummy.matrix);
+    fixtureInst.setMatrixAt(idx, lampDummy.matrix);
+    bulbInst.setMatrixAt(idx, lampDummy.matrix);
 
     collisionBoxes.push({
       minX: l.x - 0.5,
@@ -1753,6 +2003,156 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
       maxZ: l.z + 0.5,
     });
   });
+
+  poleInst.instanceMatrix.needsUpdate = true;
+  armInst.instanceMatrix.needsUpdate = true;
+  fixtureInst.instanceMatrix.needsUpdate = true;
+  bulbInst.instanceMatrix.needsUpdate = true;
+  scene.add(poleInst, armInst, fixtureInst, bulbInst);
+
+  // 10.5 GPU-INSTANCED URBAN STREET DETAILS (Lombadas, Lixeiras, Bancos de Praça & Fios nos Postes = 4 Draw Calls!)
+  {
+    const propDummy = new THREE.Object3D();
+
+    // A) Speed Bumps (Lombadas / Quebra-Molas com faixas amarelas) on avenues
+    const bumpCanvas = document.createElement('canvas');
+    bumpCanvas.width = 256;
+    bumpCanvas.height = 64;
+    const bCtx = bumpCanvas.getContext('2d')!;
+    bCtx.fillStyle = '#1e293b';
+    bCtx.fillRect(0, 0, 256, 64);
+    bCtx.fillStyle = '#facc15';
+    for (let x = -32; x < 256; x += 32) {
+      bCtx.beginPath();
+      bCtx.moveTo(x, 0);
+      bCtx.lineTo(x + 16, 0);
+      bCtx.lineTo(x + 32, 64);
+      bCtx.lineTo(x + 16, 64);
+      bCtx.closePath();
+      bCtx.fill();
+    }
+    const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+    bumpTex.colorSpace = THREE.SRGBColorSpace;
+    const bumpGeo = new THREE.CylinderGeometry(0.45, 0.45, 12.6, 10, 1, false, 0, Math.PI);
+    bumpGeo.rotateZ(Math.PI / 2);
+    bumpGeo.scale(1, 0.22, 1.8);
+    const bumpMat = new THREE.MeshStandardMaterial({ map: bumpTex, roughness: 0.72 });
+    const speedBumpCoords = [
+      { x: -70, z: -48, rotY: 0 },
+      { x: -70, z: 12, rotY: 0 },
+      { x: -10, z: -42, rotY: 0 },
+      { x: -10, z: 18, rotY: 0 },
+      { x: 50, z: -42, rotY: 0 },
+      { x: 50, z: 18, rotY: 0 },
+      { x: -40, z: -70, rotY: Math.PI / 2 },
+      { x: 20, z: -70, rotY: Math.PI / 2 },
+      { x: -40, z: -15, rotY: Math.PI / 2 },
+      { x: 20, z: 45, rotY: Math.PI / 2 },
+      { x: 290, z: -42, rotY: 0 },
+      { x: 350, z: 18, rotY: 0 },
+    ];
+    const speedBumpInst = new THREE.InstancedMesh(bumpGeo, bumpMat, speedBumpCoords.length);
+    speedBumpCoords.forEach((sb, idx) => {
+      propDummy.position.set(sb.x, 0.02, sb.z);
+      propDummy.rotation.set(0, sb.rotY, 0);
+      propDummy.scale.set(1, 1, 1);
+      propDummy.updateMatrix();
+      speedBumpInst.setMatrixAt(idx, propDummy.matrix);
+    });
+    speedBumpInst.instanceMatrix.needsUpdate = true;
+    speedBumpInst.geometry.computeBoundingSphere();
+    scene.add(speedBumpInst);
+
+    // B) Sidewalk Trash Cans (Lixeiras Urbanas Verde Esmeralda & Laranja)
+    const trashGeo = new THREE.CylinderGeometry(0.28, 0.24, 0.88, 8);
+    const trashMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.25 });
+    const trashCoords: Array<{ x: number; z: number; color: number }> = [];
+    [-70, -10, 50, 290, 350].forEach((ax, aIdx) => {
+      [-92, -52, -28, 8, 32, 68].forEach((zPos, zIdx) => {
+        trashCoords.push({
+          x: ax + (zIdx % 2 === 0 ? -8.4 : 8.4),
+          z: zPos,
+          color: (aIdx + zIdx) % 2 === 0 ? 0x10b981 : 0xf97316,
+        });
+      });
+    });
+    const trashInst = new THREE.InstancedMesh(trashGeo, trashMat, trashCoords.length);
+    const trashColor = new THREE.Color();
+    trashCoords.forEach((tc, idx) => {
+      propDummy.position.set(tc.x, 0.44, tc.z);
+      propDummy.rotation.set(0, 0, 0);
+      propDummy.scale.set(1, 1, 1);
+      propDummy.updateMatrix();
+      trashInst.setMatrixAt(idx, propDummy.matrix);
+      trashInst.setColorAt(idx, trashColor.setHex(tc.color));
+    });
+    trashInst.instanceMatrix.needsUpdate = true;
+    if (trashInst.instanceColor) trashInst.instanceColor.needsUpdate = true;
+    trashInst.geometry.computeBoundingSphere();
+    scene.add(trashInst);
+
+    // C) Wooden Park Benches (Bancos de Praça) along Plazas & Sidewalks
+    const seatGeo = new THREE.BoxGeometry(1.8, 0.12, 0.55);
+    seatGeo.translate(0, 0.46, 0);
+    const backGeo = new THREE.BoxGeometry(1.8, 0.42, 0.1);
+    backGeo.translate(0, 0.72, -0.22);
+    const legLGeo = new THREE.BoxGeometry(0.12, 0.46, 0.52);
+    legLGeo.translate(-0.75, 0.23, 0);
+    const legRGeo = new THREE.BoxGeometry(0.12, 0.46, 0.52);
+    legRGeo.translate(0.75, 0.23, 0);
+    const benchGeo = mergeGeometries([seatGeo, backGeo, legLGeo, legRGeo]);
+    const benchMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.7 });
+    const benchCoords = [
+      { x: -32, z: -32, rotY: 0 },
+      { x: -48, z: -32, rotY: 0 },
+      { x: -32, z: -52, rotY: Math.PI },
+      { x: 12, z: -32, rotY: 0 },
+      { x: 28, z: -32, rotY: 0 },
+      { x: 12, z: -52, rotY: Math.PI },
+      { x: 78.5, z: -45, rotY: Math.PI / 2 },
+      { x: 78.5, z: -85, rotY: Math.PI / 2 },
+      { x: 78.5, z: 35, rotY: Math.PI / 2 },
+      { x: 78.5, z: 75, rotY: Math.PI / 2 },
+      { x: 342, z: -32, rotY: 0 },
+      { x: 358, z: -32, rotY: 0 },
+    ];
+    const benchInst = new THREE.InstancedMesh(benchGeo, benchMat, benchCoords.length);
+    benchCoords.forEach((bc, idx) => {
+      propDummy.position.set(bc.x, 0, bc.z);
+      propDummy.rotation.set(0, bc.rotY, 0);
+      propDummy.scale.set(1, 1, 1);
+      propDummy.updateMatrix();
+      benchInst.setMatrixAt(idx, propDummy.matrix);
+    });
+    benchInst.instanceMatrix.needsUpdate = true;
+    benchInst.geometry.computeBoundingSphere();
+    scene.add(benchInst);
+
+    // D) Overhead Utility Wires (Fios nos Postes) along Core Vertical Avenues
+    if (!isLow) {
+      const wireGeo = new THREE.CylinderGeometry(0.018, 0.018, 1.0, 4);
+      wireGeo.rotateX(Math.PI / 2);
+      const wireMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+      const wireSpans: Array<{ x: number; z1: number; z2: number }> = [];
+      [-78.5, -61.5, -18.5, -1.5, 41.5, 58.5].forEach(wx => {
+        for (let wz = -105; wz < 105; wz += 35) {
+          wireSpans.push({ x: wx, z1: wz, z2: wz + 35 });
+        }
+      });
+      const wireInst = new THREE.InstancedMesh(wireGeo, wireMat, wireSpans.length);
+      wireSpans.forEach((ws, idx) => {
+        const len = Math.abs(ws.z2 - ws.z1);
+        propDummy.position.set(ws.x, 6.45, (ws.z1 + ws.z2) * 0.5);
+        propDummy.rotation.set(0, 0, 0);
+        propDummy.scale.set(1, 1, len);
+        propDummy.updateMatrix();
+        wireInst.setMatrixAt(idx, propDummy.matrix);
+      });
+      wireInst.instanceMatrix.needsUpdate = true;
+      wireInst.geometry.computeBoundingSphere();
+      scene.add(wireInst);
+    }
+  }
 
   // 11. ANIMATED 3D PEDESTRIANS WITH SOLID COLLISION, HEALTH BAR, SCREAM REACTION & CROSSWALK AI
   interface PedestrianAgent {
@@ -1779,6 +2179,7 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     fleeTargetZ: number;
     knockbackX: number;
     knockbackZ: number;
+    fadeAlpha: number;
   }
 
   const pedestrians: PedestrianAgent[] = [];
@@ -1815,12 +2216,20 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
       | 'fleeTargetZ'
       | 'knockbackX'
       | 'knockbackZ'
+      | 'fadeAlpha'
     >
   ) => {
     const shirt = shirtPalette[pedIdx % shirtPalette.length];
     const pants = pantsPalette[(pedIdx * 3) % pantsPalette.length];
     const skin = skinPalette[(pedIdx * 2) % skinPalette.length];
-    const mesh = createPedestrian(shirt, pants, skin, pedIdx % 3 === 0, isLow);
+    const mesh = createPedestrian(shirt, pants, skin, pedIdx % 3 === 0, isLow, pedIdx);
+    mesh.traverse(child => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        child.frustumCulled = true;
+        child.geometry.computeBoundingSphere();
+      }
+    });
+    mesh.userData.isDynamic = true;
 
     if (cfg.axis === 'z') {
       mesh.position.set(cfg.fixedCoord, 0, cfg.currentTravel);
@@ -1845,6 +2254,7 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
       fleeTargetZ: 0,
       knockbackX: 0,
       knockbackZ: 0,
+      fadeAlpha: 1.0,
     });
     pedIdx++;
   };
@@ -1948,12 +2358,16 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
   let lastLodPlayerX = -67.2;
   let lastLodPlayerZ = -28.0;
   let currentPedLodScale = 1.0;
+  const maxActivePedestrians = isLow ? 12 : performanceMode === 'medium' ? 18 : 24;
 
-  // Animate all 3D Pedestrians (walking cycle + traffic signal compliance + panic/scream + KO state + Dynamic LOD)
+  // Animate all 3D Pedestrians (walking cycle + traffic signal compliance + panic/scream + KO state + Object Pool Cap & Hysteresis)
   animatables.push({
     update: (dt, time) => {
-      const pedCullDistSq = (135 * currentPedLodScale) * (135 * currentPedLodScale);
-      const pedDetailDistSq = (68 * currentPedLodScale) * (68 * currentPedLodScale);
+      // Hysteresis: unload radius (92m) is strictly larger than load radius (75m) inside the fog horizon
+      const pedLoadDistSq = (75 * currentPedLodScale) * (75 * currentPedLodScale);
+      const pedUnloadDistSq = (92 * currentPedLodScale) * (92 * currentPedLodScale);
+      const pedDetailDistSq = (45 * currentPedLodScale) * (45 * currentPedLodScale);
+      let activePedCount = 0;
 
       for (const p of pedestrians) {
         if (p.hitCooldown > 0) p.hitCooldown = Math.max(0, p.hitCooldown - dt);
@@ -1962,10 +2376,16 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
         const pdz = p.mesh.position.z - lastLodPlayerZ;
         const distSq = pdx * pdx + pdz * pdz;
 
-        if (distSq > pedCullDistSq && p.koTimer <= 0 && p.panicTimer <= 0) {
+        const thresholdSq = p.mesh.visible ? pedUnloadDistSq : pedLoadDistSq;
+
+        if (
+          (distSq > thresholdSq || activePedCount >= maxActivePedestrians) &&
+          p.koTimer <= 0 &&
+          p.panicTimer <= 0
+        ) {
           p.mesh.visible = false;
           if (p.healthBar) p.healthBar.sprite.visible = false;
-          // Lightweight 1D travel integration while culled
+          // Lightweight 1D travel integration while in inactive pool
           p.currentTravel += p.dir * p.speed * dt;
           if (p.currentTravel >= p.maxTravel) {
             p.currentTravel = p.maxTravel;
@@ -1982,7 +2402,24 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
           continue;
         }
 
-        p.mesh.visible = true;
+        activePedCount++;
+
+        if (!p.mesh.visible) {
+          p.mesh.visible = true;
+          p.fadeAlpha = 0.0;
+        }
+
+        if (p.fadeAlpha < 1.0) {
+          p.fadeAlpha = Math.min(1.0, p.fadeAlpha + dt / 0.35);
+          const s = 0.86 + 0.14 * p.fadeAlpha;
+          p.mesh.scale.set(
+            p.mesh.baseScaleXZ * s,
+            p.mesh.baseScaleY * (0.84 + 0.16 * p.fadeAlpha),
+            p.mesh.baseScaleXZ * s
+          );
+        } else {
+          p.mesh.scale.set(p.mesh.baseScaleXZ, p.mesh.baseScaleY, p.mesh.baseScaleXZ);
+        }
 
         if (p.koTimer > 0) {
           p.koTimer = Math.max(0, p.koTimer - dt);
@@ -2051,6 +2488,7 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
             const swing = Math.sin(time * effectiveSpeed * 5.4 + p.phaseOffset) * 0.6;
             p.mesh.leftLeg.rotation.x = swing;
             p.mesh.rightLeg.rotation.x = -swing;
+            p.mesh.headGroup.rotation.y = 0;
 
             if (p.panicTimer > 0) {
               // Raise both arms in shock when hit/panicked!
@@ -2064,11 +2502,38 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
               Math.abs(Math.sin(time * effectiveSpeed * 5.4 + p.phaseOffset)) * 0.04;
           }
         } else {
+          // Waiting at traffic light: stand still, breathe gently, and look both ways
           p.mesh.leftLeg.rotation.x = 0;
           p.mesh.rightLeg.rotation.x = 0;
           p.mesh.leftArm.rotation.x = Math.sin(time * 2 + p.phaseOffset) * 0.06;
           p.mesh.rightArm.rotation.x = -Math.sin(time * 2 + p.phaseOffset) * 0.06;
+          p.mesh.headGroup.rotation.y = Math.sin(time * 1.8 + p.phaseOffset) * 0.38;
           p.mesh.position.y = 0;
+        }
+      }
+
+      // Animate 3D Waiting Customers at Delivery Dropoff Points (wave arm enthusiastically when player is nearby!)
+      for (const ca of customerActors) {
+        const cdx = lastLodPlayerX - ca.x;
+        const cdz = lastLodPlayerZ - ca.z;
+        const cDistSq = cdx * cdx + cdz * cdz;
+        if (cDistSq > pedUnloadDistSq) {
+          ca.mesh.visible = false;
+          continue;
+        }
+        ca.mesh.visible = true;
+        if (cDistSq < 625) {
+          // Player within 25m: face player and wave right arm!
+          ca.mesh.rotation.y = Math.atan2(cdx, cdz);
+          ca.mesh.rightArm.rotation.x = -2.45 + Math.sin(time * 8.5 + ca.phase) * 0.35;
+          ca.mesh.rightArm.rotation.z = -0.25 + Math.cos(time * 8.5 + ca.phase) * 0.22;
+          ca.mesh.leftArm.rotation.x = Math.sin(time * 3.0 + ca.phase) * 0.12;
+          ca.mesh.position.y = Math.abs(Math.sin(time * 4.2 + ca.phase)) * 0.04;
+        } else {
+          ca.mesh.rightArm.rotation.x = Math.sin(time * 2.0 + ca.phase) * 0.08;
+          ca.mesh.rightArm.rotation.z = 0;
+          ca.mesh.leftArm.rotation.x = -Math.sin(time * 2.0 + ca.phase) * 0.08;
+          ca.mesh.position.y = 0;
         }
       }
     },
@@ -3096,19 +3561,19 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     });
   };
 
-  // Spawn Main City 3D Soccer Stadium ("Estádio Maracanã 3D • Arena MotoGrau FC") at X = -40, Z = 168
+  // Spawn Main City 3D Soccer Stadium ("Estádio Maracanã 3D • Arena MotoGrau FC") at X = -40, Z = 174 (clear of Z = 145 avenue)
   buildSoccerStadiumComplex(
     -40,
-    168,
+    174,
     '⚽ ESTÁDIO MARACANÃ 3D • ARENA MOTOGRAU',
     'MOTOGRAU FC',
     'FALCÃO FC'
   );
 
-  // Spawn Second City ("Nova Metrópole") 3D Soccer Stadium at X = 350, Z = -168
+  // Spawn Second City ("Nova Metrópole") 3D Soccer Stadium at X = 448, Z = -174 (clear of X = 350 & X = 410 avenues)
   buildSoccerStadiumComplex(
-    350,
-    -168,
+    448,
+    -174,
     '⚽ ARENA ILHA DE CRISTAL • NOVA METRÓPOLE',
     'CRISTAL FC',
     'ATLÂNTICO FC'
@@ -3617,18 +4082,18 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
     });
   };
 
-  // Spawn Custom Amusement Park #1 right in the Central Plaza (X = 16, Z = 14) so the player can visit immediately!
+  // Spawn Custom Amusement Park #1 in the Central Plaza block center (X = 20, Z = 15)
   buildAmusementParkComplex(
-    16,
-    14,
+    20,
+    15,
     '🎡 PARQUE DE DIVERSÕES PLAYCENTER 3D',
     0
   );
 
-  // Spawn Custom Amusement Park #2 in the Arena & Autódromo District (X = 24, Z = 168)
+  // Spawn Custom Amusement Park #2 in the Arena & Autódromo District (X = 20, Z = 174, clear of Z = 145 avenue)
   buildAmusementParkComplex(
-    24,
-    168,
+    20,
+    174,
     '🎢 LUNA PARK NEON • ARENA SHOW',
     Math.PI
   );
@@ -4511,6 +4976,16 @@ export function buildCityEnvironment(scene: THREE.Scene, performanceMode: 'low' 
       vRoadMat.emissiveIntensity = targetIntensity;
       hRoadMat.emissiveIntensity = targetIntensity;
       interMat.emissiveIntensity = targetIntensity;
+    },
+    updateRoadWetness: (wetness: number) => {
+      const w = Math.max(0, Math.min(1, wetness));
+      vRoadMat.roughness = 0.58 - w * 0.44;
+      vRoadMat.metalness = 0.18 + w * 0.52;
+      hRoadMat.roughness = 0.62 - w * 0.46;
+      hRoadMat.metalness = 0.15 + w * 0.54;
+      interMat.roughness = 0.68 - w * 0.48;
+      interMat.metalness = 0.14 + w * 0.52;
+      groundMat.roughness = 0.78 - w * 0.35;
     },
   };
 }

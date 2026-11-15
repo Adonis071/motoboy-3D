@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DailyMission } from '../game/missions';
-import { Trophy, CheckCircle2, Gift, X, Sparkles } from 'lucide-react';
+import { Trophy, CheckCircle2, Gift, X, Sparkles, Crown } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface MissionsModalProps {
@@ -14,6 +14,14 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
   onClaimReward,
   onClose,
 }) => {
+  const [activeTab, setActiveTab] = useState<'all' | 'daily' | 'weekly'>('all');
+
+  const filteredMissions = missions.filter(m => {
+    if (activeTab === 'daily') return (m.period || 'daily') === 'daily';
+    if (activeTab === 'weekly') return m.period === 'weekly';
+    return true;
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -27,10 +35,10 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
         animate={{ scale: 1, y: 0, opacity: 1 }}
         exit={{ scale: 0.94, y: 14, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 320 }}
-        className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl sm:rounded-[32px] p-4 sm:p-6 shadow-2xl flex flex-col gap-4 sm:gap-6 overflow-y-auto max-h-[88vh]"
+        className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl sm:rounded-[32px] p-4 sm:p-6 shadow-2xl flex flex-col gap-4 overflow-y-auto max-h-[88vh]"
       >
         {/* HEADER */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 sm:pb-4 gap-2">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-xl sm:text-2xl shrink-0">
               🎯
@@ -38,9 +46,13 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-amber-400">
                 <Sparkles className="w-3 h-3" />
-                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">Desafios Diários</span>
+                <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest truncate">
+                  Metas Diárias & Semanais
+                </span>
               </div>
-              <h2 className="text-base sm:text-xl font-black text-white truncate">Missões do Motoboy</h2>
+              <h2 className="text-base sm:text-xl font-black text-white truncate">
+                Missões & Recompensas
+              </h2>
             </div>
           </div>
           <button
@@ -51,10 +63,46 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
           </button>
         </div>
 
+        {/* FILTER TABS */}
+        <div className="grid grid-cols-3 gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer ${
+              activeTab === 'all'
+                ? 'bg-emerald-500 text-slate-950 shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Todas ({missions.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('daily')}
+            className={`py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer ${
+              activeTab === 'daily'
+                ? 'bg-amber-500 text-slate-950 shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Diárias
+          </button>
+          <button
+            onClick={() => setActiveTab('weekly')}
+            className={`py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
+              activeTab === 'weekly'
+                ? 'bg-orange-500 text-slate-950 shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Crown className="w-3.5 h-3.5" />
+            <span>Semanais</span>
+          </button>
+        </div>
+
         {/* MISSIONS LIST */}
         <div className="flex flex-col gap-3">
-          {missions.map(mission => {
+          {filteredMissions.map(mission => {
             const pct = Math.min(100, Math.round((mission.progress / mission.target) * 100));
+            const isWeekly = mission.period === 'weekly';
             return (
               <div
                 key={mission.id}
@@ -63,6 +111,8 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
                     ? 'bg-slate-950/40 border-slate-800/60 opacity-70'
                     : mission.completed
                     ? 'bg-emerald-950/30 border-emerald-500/60 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+                    : isWeekly
+                    ? 'bg-slate-950/85 border-amber-500/40'
                     : 'bg-slate-950/70 border-slate-800'
                 }`}
               >
@@ -72,14 +122,31 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
                       {mission.icon}
                     </span>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-xs sm:text-sm font-black text-white truncate">{mission.title}</span>
-                      <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-snug">{mission.description}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs sm:text-sm font-black text-white truncate">
+                          {mission.title}
+                        </span>
+                        <span
+                          className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md ${
+                            isWeekly
+                              ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40'
+                              : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                          }`}
+                        >
+                          {isWeekly ? 'SEMANAL' : 'DIÁRIA'}
+                        </span>
+                      </div>
+                      <span className="text-[11px] sm:text-xs text-slate-400 font-medium leading-snug">
+                        {mission.description}
+                      </span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0 bg-amber-500/15 border border-amber-500/30 px-2 sm:px-2.5 py-1 rounded-xl">
                     <Trophy className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400" />
-                    <span className="text-[11px] sm:text-xs font-black text-amber-400 whitespace-nowrap">+R$ {mission.rewardCoins}</span>
+                    <span className="text-[11px] sm:text-xs font-black text-amber-400 whitespace-nowrap">
+                      +R$ {mission.rewardCoins}
+                    </span>
                   </div>
                 </div>
 
@@ -94,7 +161,11 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
                   <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
                     <div
                       className={`h-full rounded-full transition-all duration-300 ${
-                        mission.completed ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'bg-amber-500'
+                        mission.completed
+                          ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]'
+                          : isWeekly
+                          ? 'bg-orange-500'
+                          : 'bg-amber-500'
                       }`}
                       style={{ width: `${pct}%` }}
                     />
@@ -117,7 +188,9 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
                       <span>RESGATAR RECOMPENSA (+R$ {mission.rewardCoins})</span>
                     </button>
                   ) : (
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Em andamento...</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">
+                      Em andamento...
+                    </span>
                   )}
                 </div>
               </div>
@@ -128,10 +201,11 @@ export const MissionsModal: React.FC<MissionsModalProps> = ({
         {/* FOOTER */}
         <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-center">
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-            ⏰ As missões diárias reiniciam automaticamente todo dia à meia-noite!
+            👑 Complete a meta semanal para liberar o Bônus Lenda das Entregas (+R$ 250)!
           </span>
         </div>
       </motion.div>
     </motion.div>
   );
 };
+

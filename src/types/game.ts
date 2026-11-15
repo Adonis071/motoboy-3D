@@ -52,6 +52,15 @@ export interface District {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }
 
+export type PerformanceMode = 'low' | 'medium' | 'high';
+
+export type RiderOutfit =
+  | 'classic'
+  | 'neon_windbreaker'
+  | 'leather_pro'
+  | 'cyber_armor'
+  | 'rain_suit';
+
 export interface DeliveryOrder {
   id: string;
   itemTitle: string;
@@ -69,6 +78,8 @@ export interface DeliveryOrder {
   state: 'to_pickup' | 'to_deliver' | 'completed' | 'failed';
   isFragile?: boolean;
   isUrgent?: boolean;
+  isHot?: boolean;
+  collisionCount?: number;
 }
 
 export interface BikeUpgrades {
@@ -80,12 +91,40 @@ export interface BikeUpgrades {
   nitroUnlocked: boolean;
 }
 
+export type HelmetStyle = 'street' | 'modular' | 'cross' | 'aeropro';
+export type BikeDecalStyle = 'none' | 'flame_orange' | 'emerald_stripe' | 'grau_king' | 'carbon_pro';
+
 export interface BikeCustomization {
   paintColor: string;
   trunkSkin: 'padrao' | 'ifood' | 'amarelo' | 'uber' | 'graffiti';
   helmetColor: string;
+  helmetStyle?: HelmetStyle;
+  decalStyle?: BikeDecalStyle;
   neonColor: 'none' | 'cyan' | 'pink' | 'lime' | 'gold' | 'purple';
   exhaustType: 'stock' | 'sport' | 'coyote' | 'direto';
+  riderOutfit?: RiderOutfit;
+  unlockedOutfits?: RiderOutfit[];
+}
+
+export interface EarningsRecord {
+  id: string;
+  timestamp: string;
+  itemTitle: string;
+  icon: string;
+  customerName: string;
+  baseReward: number;
+  tip: number;
+  total: number;
+  orderTag: string;
+}
+
+export interface CustomerReview {
+  id: string;
+  customerName: string;
+  itemTitle: string;
+  stars: number;
+  comment: string;
+  timestamp: string;
 }
 
 export interface PlayerStats {
@@ -96,4 +135,9 @@ export interface PlayerStats {
   rating: number; // 1.0 to 5.0
   totalGrauPoints: number;
   distanceTraveledKm: number;
+  level?: number;
+  fuel?: number;
+  earningsHistory?: EarningsRecord[];
+  customerReviews?: CustomerReview[];
 }
+

@@ -262,6 +262,29 @@ export function createAsphaltTexture(isLow: boolean = false): RoadTextures {
     aCtx.fillRect(width - curbW, y + 122 * scale, curbW, 6 * scale);
   }
 
+  // Storm drain grates along curb gutters (Bocas de Lobo / Grelhas de Drenagem)
+  for (let y = 180 * scale; y < height; y += 340 * scale) {
+    const gxL = 29 * scale;
+    const gxR = width - 45 * scale;
+    const gw = 16 * scale;
+    const gh = 34 * scale;
+    [gxL, gxR].forEach(gx => {
+      aCtx.fillStyle = '#090d16';
+      aCtx.fillRect(gx, y, gw, gh);
+      aCtx.strokeStyle = '#475569';
+      aCtx.lineWidth = 1.5 * scale;
+      aCtx.strokeRect(gx, y, gw, gh);
+      for (let bar = y + 5 * scale; bar < y + gh - 2 * scale; bar += 5 * scale) {
+        aCtx.beginPath();
+        aCtx.moveTo(gx + 2 * scale, bar);
+        aCtx.lineTo(gx + gw - 2 * scale, bar);
+        aCtx.stroke();
+      }
+      bCtx.fillStyle = '#303030';
+      bCtx.fillRect(gx, y, gw, gh);
+    });
+  }
+
   const map = new THREE.CanvasTexture(albedoCanvas);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.colorSpace = THREE.SRGBColorSpace;
@@ -283,8 +306,8 @@ export function createAsphaltTexture(isLow: boolean = false): RoadTextures {
 }
 
 /**
- * Architectural Brazilian Granite & Smooth Stone Paver Sidewalk / Urban Floor Texture
- * Designed with soft low-contrast mortar joints to eliminate moiré striping at grazing angles.
+ * Authentic Brazilian Interlocking Flagstone / Paver Tile Floor (Piso de Lajota / Bloquete)
+ * Warm architectural stone & concrete pavers with beveled edges and zero moiré striping.
  */
 export function createSidewalkTexture(isLow: boolean = false): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -293,43 +316,52 @@ export function createSidewalkTexture(isLow: boolean = false): THREE.CanvasTextu
   const ctx = canvas.getContext('2d')!;
   const scale = isLow ? 0.5 : 1.0;
 
-  // Warm-neutral architectural stone base
-  ctx.fillStyle = '#94a3b8';
+  // Warm mortar / grout base
+  ctx.fillStyle = '#78716c';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Large-format architectural granite slabs (256x256) with subtle tonal variation
-  const tileW = 256 * scale;
-  const tileH = 256 * scale;
-  const tones = [
-    '#cbd5e1',
-    '#c4d0de',
-    '#d1d9e4',
-    '#b8c5d6',
-    '#cdd7e3',
+  // Interlocking running-bond flagstone pavers (Lajotas 128x128 & 256x128)
+  const rows = 8;
+  const cols = 8;
+  const cellW = canvas.width / cols;
+  const cellH = canvas.height / rows;
+  const palette = [
+    '#d6d3d1', // Warm stone
+    '#cbd5e1', // Light slate lajota
+    '#e7e5e4', // Sandstone cream
+    '#c7d2fe', // Subtle cool granite tint
+    '#d4d4d8', // Urban concrete paver
+    '#fed7aa', // Subtle warm terracotta-buff lajota
   ];
 
-  for (let row = 0; row < canvas.height / tileH; row++) {
-    for (let col = 0; col < canvas.width / tileW; col++) {
-      const x = col * tileW;
-      const y = row * tileH;
-      const tone = tones[(row * 3 + col * 5) % tones.length];
-      const pad = 2 * scale;
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) * (cellW * 0.5);
+    for (let c = -1; c <= cols; c++) {
+      const x = c * cellW + offset;
+      const y = r * cellH;
+      const pad = 3 * scale;
+      const tone = palette[(r * 5 + (c + 8) * 3) % palette.length];
 
-      const grad = ctx.createLinearGradient(x, y, x + tileW, y + tileH);
+      const grad = ctx.createLinearGradient(x, y, x + cellW, y + cellH);
       grad.addColorStop(0, tone);
-      grad.addColorStop(1, '#bac7d8');
+      grad.addColorStop(1, '#a8a29e');
       ctx.fillStyle = grad;
-      ctx.fillRect(x + pad, y + pad, tileW - pad * 2, tileH - pad * 2);
+      ctx.fillRect(x + pad, y + pad, cellW - pad * 2, cellH - pad * 2);
+
+      // Subtle top-left bevel highlight on each lajota
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.lineWidth = 1.5 * scale;
+      ctx.strokeRect(x + pad + 1, y + pad + 1, cellW - pad * 2 - 2, cellH - pad * 2 - 2);
     }
   }
 
-  // Fine natural stone mineral grain
-  const grainCount = isLow ? 2000 : 5500;
+  // Natural mineral speckle & weathering
+  const grainCount = isLow ? 2500 : 7000;
   for (let i = 0; i < grainCount; i++) {
     const x = Math.random() * canvas.width;
     const y = Math.random() * canvas.height;
     const isLight = Math.random() > 0.5;
-    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.14)' : 'rgba(51, 65, 85, 0.12)';
+    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.16)' : 'rgba(41, 37, 36, 0.14)';
     ctx.fillRect(x, y, 2 * scale, 2 * scale);
   }
 
@@ -343,6 +375,218 @@ export function createSidewalkTexture(isLow: boolean = false): THREE.CanvasTextu
   return texture;
 }
 
+/**
+ * Decorative Terracotta & Sandstone Flagstone Floor (Piso de Lajota Colonial / Calçamento de Praça)
+ * Used in commercial blocks, residential courtyards, and urban plazas.
+ */
+export function createLajotaFloorTexture(isLow: boolean = false): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const size = isLow ? 512 : 1024;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const scale = isLow ? 0.5 : 1.0;
+
+  // Deep cement mortar bed
+  ctx.fillStyle = '#57534e';
+  ctx.fillRect(0, 0, size, size);
+
+  const grid = 8;
+  const tile = size / grid;
+  const lajotaColors = [
+    '#c2410c', // Terracotta red-orange
+    '#b45309', // Warm ochre clay
+    '#d97706', // Golden baked clay
+    '#9a3412', // Deep kiln brick
+    '#d6d3d1', // Contrast sandstone inset
+  ];
+
+  for (let r = 0; r < grid; r++) {
+    for (let c = 0; c < grid; c++) {
+      const x = c * tile;
+      const y = r * tile;
+      const pad = 4 * scale;
+      const isAccent = (r + c) % 4 === 0;
+      const baseColor = isAccent ? '#e7e5e4' : lajotaColors[(r * 3 + c * 7) % 4];
+
+      const grad = ctx.createLinearGradient(x, y, x + tile, y + tile);
+      grad.addColorStop(0, baseColor);
+      grad.addColorStop(1, isAccent ? '#cbd5e1' : '#7c2d12');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x + pad, y + pad, tile - pad * 2, tile - pad * 2);
+
+      // Inner bevel groove on each lajota
+      ctx.strokeStyle = 'rgba(255, 247, 237, 0.28)';
+      ctx.lineWidth = 2 * scale;
+      ctx.strokeRect(x + pad + 4 * scale, y + pad + 4 * scale, tile - (pad + 4 * scale) * 2, tile - (pad + 4 * scale) * 2);
+    }
+  }
+
+  // Ceramic / stone surface texture grain
+  const specks = isLow ? 2500 : 6500;
+  for (let i = 0; i < specks; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.12)' : 'rgba(28,25,23,0.16)';
+    ctx.fillRect(x, y, 2 * scale, 2 * scale);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 16;
+  return tex;
+}
+
+/**
+ * Realistic Compacted Earth, Red Clay & Gravel Floor (Piso de Terra Batida / Cascalho)
+ * Used in Favela / Morro do Sol, rural Farm Ranches, and off-road shortcuts.
+ */
+export function createDirtFloorTexture(isLow: boolean = false): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const size = isLow ? 512 : 1024;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const scale = isLow ? 0.5 : 1.0;
+
+  // Base Brazilian "Terra Vermelha / Terra Batida" ochre-brown soil
+  const baseGrad = ctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.05, size * 0.5, size * 0.5, size * 0.75);
+  baseGrad.addColorStop(0, '#9a5b32');
+  baseGrad.addColorStop(0.5, '#854d27');
+  baseGrad.addColorStop(1, '#713f1e');
+  ctx.fillStyle = baseGrad;
+  ctx.fillRect(0, 0, size, size);
+
+  // Organic soil patches (damp clay, dry dust, and subtle scrub moss patches)
+  for (let i = 0; i < (isLow ? 28 : 55); i++) {
+    const px = Math.random() * size;
+    const py = Math.random() * size;
+    const pr = (Math.random() * 90 + 35) * scale;
+    const pGrad = ctx.createRadialGradient(px, py, 0, px, py, pr);
+    const rand = Math.random();
+    if (rand < 0.45) {
+      // Dry golden dust patch
+      pGrad.addColorStop(0, 'rgba(180, 118, 66, 0.45)');
+      pGrad.addColorStop(1, 'rgba(180, 118, 66, 0)');
+    } else if (rand < 0.82) {
+      // Darker compacted clay
+      pGrad.addColorStop(0, 'rgba(78, 42, 20, 0.48)');
+      pGrad.addColorStop(1, 'rgba(78, 42, 20, 0)');
+    } else {
+      // Subtle wild grass / moss tuft on dirt
+      pGrad.addColorStop(0, 'rgba(63, 98, 18, 0.38)');
+      pGrad.addColorStop(1, 'rgba(63, 98, 18, 0)');
+    }
+    ctx.fillStyle = pGrad;
+    ctx.beginPath();
+    ctx.arc(px, py, pr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Subtle motorcycle / tire ruts in the dirt
+  ctx.strokeStyle = 'rgba(59, 31, 14, 0.35)';
+  ctx.lineWidth = 10 * scale;
+  for (let t = 0; t < 4; t++) {
+    ctx.beginPath();
+    const startX = (140 + t * 220) * scale;
+    for (let y = 0; y <= size; y += 32 * scale) {
+      const wx = startX + Math.sin(y * 0.015 + t) * 18 * scale;
+      if (y === 0) ctx.moveTo(wx, y);
+      else ctx.lineTo(wx, y);
+    }
+    ctx.stroke();
+  }
+
+  // Scattered gravel stones, pebbles & coarse sand grains
+  const pebbleCount = isLow ? 3500 : 10000;
+  for (let i = 0; i < pebbleCount; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = (Math.random() * 2.8 + 0.8) * scale;
+    const shade = Math.random();
+    if (shade < 0.35) {
+      ctx.fillStyle = '#d6c7b2'; // Light quartz pebble
+    } else if (shade < 0.7) {
+      ctx.fillStyle = '#5c3419'; // Dark earth clod
+    } else {
+      ctx.fillStyle = '#b87d4b'; // Ochre grain
+    }
+    ctx.fillRect(x, y, r, r);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 16;
+  return tex;
+}
+
+/**
+ * Golden Coastal Beach Sand Texture (Piso de Areia de Praia / Dunas)
+ * Features wind-sculpted ripples, quartz sparkle, and shells/pebbles.
+ */
+export function createSandFloorTexture(isLow: boolean = false): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const size = isLow ? 512 : 1024;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const scale = isLow ? 0.5 : 1.0;
+
+  // Warm golden Brazilian beach sand gradient
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, '#fef08a');
+  grad.addColorStop(0.5, '#fde047');
+  grad.addColorStop(1, '#f59e0b');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  // Soft wind-blown sand dune ripples
+  for (let y = 0; y < size; y += 20 * scale) {
+    ctx.strokeStyle = 'rgba(180, 110, 12, 0.22)';
+    ctx.lineWidth = 3 * scale;
+    ctx.beginPath();
+    for (let x = 0; x <= size; x += 24 * scale) {
+      const wy = y + Math.sin(x * 0.025 + y * 0.05) * 5 * scale;
+      if (x === 0) ctx.moveTo(x, wy);
+      else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 251, 235, 0.35)';
+    ctx.lineWidth = 1.5 * scale;
+    ctx.beginPath();
+    for (let x = 0; x <= size; x += 24 * scale) {
+      const wy = y + 3 * scale + Math.sin(x * 0.025 + y * 0.05) * 5 * scale;
+      if (x === 0) ctx.moveTo(x, wy);
+      else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+  }
+
+  // Fine quartz sand sparkle & tiny seashell flecks
+  const grainCount = isLow ? 3500 : 9500;
+  for (let i = 0; i < grainCount; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.fillStyle = Math.random() > 0.45 ? 'rgba(255, 255, 255, 0.42)' : 'rgba(161, 98, 7, 0.26)';
+    ctx.fillRect(x, y, 2 * scale, 2 * scale);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 16;
+  return tex;
+}
+
 export function createBuildingWindowTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
@@ -353,32 +597,32 @@ export function createBuildingWindowTexture(): THREE.CanvasTexture {
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(0, 0, 1024, 1024);
 
-  // Horizontal concrete spandrel bands between floors
-  for (let y = 0; y < 512; y += 32) {
+  // Horizontal concrete floor slabs / spandrel bands across entire 1024x1024 atlas
+  for (let y = 0; y < 1024; y += 64) {
     ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, y, 512, 8);
+    ctx.fillRect(0, y, 1024, 12);
     ctx.fillStyle = '#334155';
-    ctx.fillRect(0, y, 512, 2);
+    ctx.fillRect(0, y, 1024, 3);
   }
 
-  // Office glass windows with realistic interior depth, blinds, and sky reflections
+  // Office & apartment glass windows with interior depth, blinds, sky reflections & split AC units
   for (let y = 18; y < 1008; y += 64) {
     for (let x = 16; x < 1000; x += 56) {
       const rand = Math.random();
-      if (rand < 0.26) {
-        // Warm illuminated office with ceiling light gradient
+      if (rand < 0.28) {
+        // Warm illuminated night window with ceiling light gradient
         const grad = ctx.createLinearGradient(x, y, x, y + 42);
         grad.addColorStop(0, '#fef08a');
         grad.addColorStop(1, '#f59e0b');
         ctx.fillStyle = grad;
-      } else if (rand < 0.48) {
+      } else if (rand < 0.5) {
         // Cool daylight sky reflection glass
         const grad = ctx.createLinearGradient(x, y, x + 44, y + 42);
         grad.addColorStop(0, '#38bdf8');
         grad.addColorStop(1, '#0284c7');
         ctx.fillStyle = grad;
-      } else if (rand < 0.65) {
-        // Soft neutral office interior
+      } else if (rand < 0.68) {
+        // Emerald / cyan modern studio glow
         ctx.fillStyle = '#334155';
       } else {
         // Dark tinted glass
@@ -386,10 +630,33 @@ export function createBuildingWindowTexture(): THREE.CanvasTexture {
       }
       ctx.fillRect(x, y, 44, 42);
 
+      // Venetian blinds / curtain detail on lit windows
+      if (rand < 0.28 && Math.random() < 0.45) {
+        ctx.fillStyle = 'rgba(120, 53, 15, 0.28)';
+        for (let by = y + 4; by < y + 24; by += 5) {
+          ctx.fillRect(x + 2, by, 40, 2);
+        }
+      }
+
       // Window frame mullion highlight
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
+      ctx.lineWidth = 1.2;
       ctx.strokeRect(x, y, 44, 42);
+
+      // Exterior Split Air-Conditioner condenser unit under ~22% of windows
+      if (((x + y) % 5 === 0) && x + 52 < 1018) {
+        const acX = x + 28;
+        const acY = y + 32;
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillRect(acX, acY, 18, 12);
+        ctx.fillStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.arc(acX + 6, acY + 6, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(acX, acY, 18, 12);
+      }
     }
   }
 
@@ -401,7 +668,7 @@ export function createBuildingWindowTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Creates a glowing signboard texture for Hamburguerias, Pizzarias, Restaurantes, etc.
+ * Creates a glowing signboard texture for Hamburguerias, Pizzarias, Padarias, Farmácias, Mercados, etc.
  */
 export function createStorefrontSignTexture(
   title: string,
@@ -459,8 +726,8 @@ export function createStorefrontSignTexture(
 }
 
 /**
- * Builds a complete 3D Restaurant / Hamburgueria / Pizzaria / Sushi / Lanchonete storefront
- * with striped awning, glowing windows, rooftop 3D food sculpture, and road pickup bay!
+ * Builds a complete 3D Storefront (Pizzaria, Padaria, Farmácia, Mercado, Hamburgueria, Sushi, Açaí)
+ * with striped awning, glowing windows, rooftop water tank (caixa d'água), split AC unit, and 3D rooftop sign!
  */
 export function createRestaurantBuilding(point: DeliveryPoint, isLow: boolean = false): THREE.Group {
   const group = new THREE.Group();
@@ -473,22 +740,22 @@ export function createRestaurantBuilding(point: DeliveryPoint, isLow: boolean = 
 
   const wallMat = new THREE.MeshStandardMaterial({
     color: point.primaryColor,
-    roughness: 0.55,
-    metalness: 0.15,
+    roughness: 0.52,
+    metalness: 0.16,
   });
   const trimMat = new THREE.MeshStandardMaterial({
     color: point.accentColor,
-    roughness: 0.35,
-    metalness: 0.3,
+    roughness: 0.32,
+    metalness: 0.35,
   });
   const darkMat = new THREE.MeshStandardMaterial({
     color: 0x1e293b,
-    roughness: 0.7,
+    roughness: 0.65,
   });
   const warmWindowMat = new THREE.MeshStandardMaterial({
     color: 0xfef08a,
     emissive: 0xf59e0b,
-    emissiveIntensity: 0.75,
+    emissiveIntensity: 0.8,
     roughness: 0.15,
   });
 
@@ -503,6 +770,21 @@ export function createRestaurantBuilding(point: DeliveryPoint, isLow: boolean = 
   const roofTrim = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.6, 8.0), trimMat);
   roofTrim.position.y = 6.3;
   building.add(roofTrim);
+
+  // Rooftop Blue Water Tank (Caixa d'Água Azul) + Exterior AC Split Unit
+  if (!isLow) {
+    const waterTankMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.38, metalness: 0.15 });
+    const waterTank = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.82, 1.15, 12), waterTankMat);
+    waterTank.position.set(-2.8, 7.1, -1.9);
+    const tankLid = new THREE.Mesh(new THREE.CylinderGeometry(1.02, 0.98, 0.14, 12), waterTankMat);
+    tankLid.position.set(-2.8, 7.72, -1.9);
+    const acBox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.62, 0.45),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.4, metalness: 0.3 })
+    );
+    acBox.position.set(3.4, 4.1, 3.88);
+    building.add(waterTank, tankLid, acBox);
+  }
 
   // Illuminated glass storefront windows & counter
   const glassFront = new THREE.Mesh(new THREE.BoxGeometry(7.6, 2.8, 0.2), warmWindowMat);
@@ -549,8 +831,30 @@ export function createRestaurantBuilding(point: DeliveryPoint, isLow: boolean = 
   signBoard.position.set(0, 5.2, 3.85);
   building.add(signBoard);
 
-  // 3D Rooftop Thematic Prop (Giant Burger, Pizza, Sushi, or Steak Grill!)
-  if (point.category === 'hamburgueria' || point.category === 'lanchonete') {
+  // 3D Rooftop Thematic Prop (Burger, Pizza, Açaí, Sushi, Padaria, Farmácia, Mercado)
+  const lowerName = (point.name + ' ' + point.shortSign + ' ' + point.categoryLabel).toLowerCase();
+  if (lowerName.includes('farm') || lowerName.includes('drog')) {
+    const crossGroup = new THREE.Group();
+    const crossMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x10b981,
+      emissiveIntensity: 1.2,
+      roughness: 0.2,
+    });
+    const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.75, 2.4, 0.45), crossMat);
+    const hBar = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.75, 0.45), crossMat);
+    crossGroup.add(vBar, hBar);
+    crossGroup.position.set(0, 7.9, 0);
+    building.add(crossGroup);
+  } else if (lowerName.includes('padaria') || lowerName.includes('pão') || lowerName.includes('confeitaria')) {
+    const breadGroup = new THREE.Group();
+    const crustMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.55 });
+    const loaf = new THREE.Mesh(new THREE.SphereGeometry(1.35, 14, 10), crustMat);
+    loaf.scale.set(1.5, 0.75, 0.9);
+    breadGroup.add(loaf);
+    breadGroup.position.set(0, 7.4, 0);
+    building.add(breadGroup);
+  } else if (point.category === 'hamburgueria' || point.category === 'lanchonete') {
     const burgerGroup = new THREE.Group();
     const bunMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 });
     const meatMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.8 });
@@ -672,13 +976,24 @@ export function createTrunkLogoTexture(skin: BikeCustomization['trunkSkin']): TH
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, 256, 256);
 
-  // Reflective safety stripes on baú
+  // Reflective safety stripes on baú / mochila térmica
   ctx.fillStyle = '#f8fafc';
   ctx.fillRect(14, 18, 228, 14);
   ctx.fillStyle = '#ef4444';
   for (let x = 14; x < 242; x += 36) {
     ctx.fillRect(x, 18, 18, 14);
   }
+
+  // Emerald & Orange stylized brand badge
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.arc(128, 94, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#10b981';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('⚡', 128, 96);
 
   // Border
   ctx.strokeStyle = 'rgba(255,255,255,0.45)';
@@ -687,29 +1002,207 @@ export function createTrunkLogoTexture(skin: BikeCustomization['trunkSkin']): TH
 
   // Text
   ctx.fillStyle = textColor;
-  ctx.font = '900 32px sans-serif';
+  ctx.font = '900 30px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 128, 134);
+  ctx.fillText(text, 128, 162);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
+let _sharedTireTreadTex: THREE.CanvasTexture | null = null;
+export function createTireTreadTexture(): THREE.CanvasTexture {
+  if (_sharedTireTreadTex) return _sharedTireTreadTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#12151a';
+  ctx.fillRect(0, 0, 128, 256);
+
+  // Center circumferential drainage grooves
+  ctx.fillStyle = '#07090c';
+  ctx.fillRect(54, 0, 6, 256);
+  ctx.fillRect(68, 0, 6, 256);
+
+  // Diagonal V-shaped sporty motorcycle tire tread grooves
+  ctx.strokeStyle = '#242933';
+  ctx.lineWidth = 6;
+  for (let y = 0; y < 256; y += 24) {
+    ctx.beginPath();
+    ctx.moveTo(60, y);
+    ctx.lineTo(14, y + 16);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(68, y + 12);
+    ctx.lineTo(114, y + 28);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 5);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _sharedTireTreadTex = tex;
+  return tex;
+}
+
+const _decalTexCache = new Map<string, THREE.CanvasTexture>();
+export function createBikeDecalTexture(style: BikeCustomization['decalStyle'] = 'none'): THREE.CanvasTexture {
+  const key = style || 'none';
+  if (_decalTexCache.has(key)) return _decalTexCache.get(key)!;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 256, 128);
+
+  if (key === 'flame_orange') {
+    const grad = ctx.createLinearGradient(0, 0, 256, 0);
+    grad.addColorStop(0, '#f97316');
+    grad.addColorStop(0.6, '#facc15');
+    grad.addColorStop(1, 'rgba(249,115,22,0)');
+    ctx.fillStyle = grad;
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(10, 20 + i * 24);
+      ctx.quadraticCurveTo(130, 8 + i * 24, 235 - i * 20, 32 + i * 24);
+      ctx.lineTo(10, 38 + i * 24);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (key === 'emerald_stripe') {
+    ctx.fillStyle = '#10b981';
+    ctx.fillRect(12, 26, 232, 22);
+    ctx.fillStyle = '#f97316';
+    ctx.fillRect(12, 56, 232, 12);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 22px sans-serif';
+    ctx.fillText('244 PRO', 120, 98);
+  } else if (key === 'grau_king') {
+    ctx.fillStyle = '#facc15';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(16, 16, 224, 96);
+    ctx.fillRect(20, 20, 216, 88);
+    ctx.fillStyle = '#090d16';
+    ctx.font = '900 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('👑 GRAU 244', 128, 64);
+  } else if (key === 'carbon_pro') {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(10, 14, 236, 100);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 3;
+    for (let x = -128; x < 256; x += 16) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 128, 128);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(12, 16, 232, 96);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _decalTexCache.set(key, tex);
+  return tex;
+}
+
+export function populateHelmetStyleExtras(
+  group: THREE.Group,
+  style: BikeCustomization['helmetStyle'] = 'street',
+  helmetColor: string = '#111827'
+) {
+  while (group.children.length > 0) {
+    group.remove(group.children[0]);
+  }
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3, metalness: 0.7 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: helmetColor, roughness: 0.2, metalness: 0.6 });
+  const neonTrimMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+
+  if (style === 'modular') {
+    // Flip-up modular chin bar + top air vent
+    const chinBar = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.08, 0.14), darkMat);
+    chinBar.position.set(0, -0.08, 0.11);
+    const topVent = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.04, 0.14), neonTrimMat);
+    topVent.position.set(0, 0.17, 0.02);
+    group.add(chinBar, topVent);
+  } else if (style === 'cross') {
+    // Motocross / Trilha extended sun peak + chin guard
+    const sunPeak = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.03, 0.2), accentMat);
+    sunPeak.position.set(0, 0.11, 0.14);
+    sunPeak.rotation.x = -0.18;
+    const crossChin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.1, 0.18), darkMat);
+    crossChin.position.set(0, -0.09, 0.14);
+    group.add(sunPeak, crossChin);
+  } else if (style === 'aeropro') {
+    // Racing Aero Spoiler Wing + Orange/Emerald accent fin
+    const aeroWing = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.05, 0.16), darkMat);
+    aeroWing.position.set(0, 0.08, -0.14);
+    aeroWing.rotation.x = 0.28;
+    const fin = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 0.09, 0.22),
+      new THREE.MeshBasicMaterial({ color: 0xf97316 })
+    );
+    fin.position.set(0, 0.16, -0.04);
+    group.add(aeroWing, fin);
+  }
+}
+
 /**
  * Procedural Motorcycle Model with high-detail parts, mirrors, shock springs,
  * rider legs/boots, and dynamic nitro flame!
  */
+export function getRiderOutfitColors(outfit?: string): {
+  jacket: number;
+  stripe: number;
+  pants: number;
+} {
+  switch (outfit) {
+    case 'neon_windbreaker':
+      return { jacket: 0x059669, stripe: 0xfacc15, pants: 0x0f172a };
+    case 'leather_pro':
+      return { jacket: 0x991b1b, stripe: 0xf8fafc, pants: 0x18181b };
+    case 'cyber_armor':
+      return { jacket: 0x1e1b4b, stripe: 0x00f3ff, pants: 0x090d16 };
+    case 'rain_suit':
+      return { jacket: 0xca8a04, stripe: 0xe2e8f0, pants: 0x1e293b };
+    case 'classic':
+    default:
+      return { jacket: 0x0f172a, stripe: 0x10b981, pants: 0x1d4ed8 };
+  }
+}
+
 export interface MotorcycleGroup extends THREE.Group {
   frontFork: THREE.Group;
   frontWheel: THREE.Mesh;
   rearWheel: THREE.Mesh;
   riderMesh: THREE.Group;
+  riderTorso: THREE.Group;
+  riderLeftLeg: THREE.Group;
+  riderRightLeg: THREE.Group;
+  riderLeftArm: THREE.Group;
+  riderRightArm: THREE.Group;
+  backpackMesh: THREE.Group;
   bodyMesh: THREE.Mesh;
   trunkMesh: THREE.Mesh;
   helmetMesh: THREE.Mesh;
+  helmetExtrasGroup: THREE.Group;
+  decalMat: THREE.MeshStandardMaterial;
+  jacketMat: THREE.MeshStandardMaterial;
+  stripeMat: THREE.MeshBasicMaterial;
+  pantsMat: THREE.MeshStandardMaterial;
   headlightLight: THREE.SpotLight;
+  headlightLensMat: THREE.MeshStandardMaterial;
   neonMesh: THREE.Mesh;
   neonLight: THREE.PointLight;
   nitroFlameMesh: THREE.Mesh;
@@ -728,40 +1221,45 @@ export function createMotorcycle(
   // Materials
   const paintMat = new THREE.MeshStandardMaterial({
     color: customization.paintColor,
-    roughness: 0.2,
-    metalness: 0.75,
+    roughness: 0.18,
+    metalness: 0.78,
   });
 
   const chromeMat = new THREE.MeshStandardMaterial({
     color: 0xe2e8f0,
     roughness: 0.12,
-    metalness: 0.92,
+    metalness: 0.94,
   });
 
   const darkMetalMat = new THREE.MeshStandardMaterial({
     color: 0x1e293b,
-    roughness: 0.45,
-    metalness: 0.65,
+    roughness: 0.42,
+    metalness: 0.68,
   });
 
+  const tireTreadTex = createTireTreadTexture();
   const rubberMat = new THREE.MeshStandardMaterial({
-    color: 0x111317,
-    roughness: 0.85,
-    metalness: 0.1,
+    color: 0x181b20,
+    map: tireTreadTex,
+    bumpMap: tireTreadTex,
+    bumpScale: 0.025,
+    roughness: 0.82,
+    metalness: 0.12,
   });
 
   const glassMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     emissive: 0xfffbeb,
-    emissiveIntensity: 0.95,
-    roughness: 0.1,
+    emissiveIntensity: 1.15,
+    roughness: 0.08,
   });
+  root.headlightLensMat = glassMat;
 
   const redGlassMat = new THREE.MeshStandardMaterial({
     color: 0xff1122,
     emissive: 0xff0022,
-    emissiveIntensity: 0.85,
-    roughness: 0.2,
+    emissiveIntensity: 0.9,
+    roughness: 0.18,
   });
   root.taillightMat = redGlassMat;
 
@@ -773,13 +1271,29 @@ export function createMotorcycle(
   frameMesh.castShadow = !isLow;
   root.add(frameMesh);
 
-  // 2. SCULPTED FUEL TANK & SIDE FAIRINGS
-  const tankGeo = new THREE.BoxGeometry(0.36, 0.3, 0.66);
+  // 2. SCULPTED FUEL TANK, SIDE FAIRINGS & DECAL OVERLAY
+  const tankGeo = new THREE.BoxGeometry(0.37, 0.3, 0.68);
   const tankMesh = new THREE.Mesh(tankGeo, paintMat);
   tankMesh.position.set(0, 0.73, 0.16);
   tankMesh.castShadow = true;
   root.add(tankMesh);
   root.bodyMesh = tankMesh;
+
+  // Tank Sticker / Decal Overlay
+  const decalStyle = customization.decalStyle || 'none';
+  const decalMat = new THREE.MeshStandardMaterial({
+    map: createBikeDecalTexture(decalStyle),
+    transparent: true,
+    opacity: decalStyle === 'none' ? 0 : 0.95,
+    roughness: 0.25,
+    metalness: 0.3,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
+  root.decalMat = decalMat;
+  const decalMesh = new THREE.Mesh(new THREE.BoxGeometry(0.382, 0.22, 0.56), decalMat);
+  decalMesh.position.set(0, 0.74, 0.16);
+  root.add(decalMesh);
 
   // Rear tail fairing
   const tailFairing = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.14, 0.45), paintMat);
@@ -817,30 +1331,36 @@ export function createMotorcycle(
   root.add(damageSmokeGroup);
   root.damageSmokeGroup = damageSmokeGroup;
 
-  // 4. SEAT
-  const seatGeo = new THREE.BoxGeometry(0.3, 0.12, 0.72);
-  const seatMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.85 });
+  // 4. ERGONOMIC TWO-TIER SEAT
+  const seatGeo = new THREE.BoxGeometry(0.31, 0.12, 0.72);
+  const seatMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.82 });
   const seatMesh = new THREE.Mesh(seatGeo, seatMat);
   seatMesh.position.set(0, 0.69, -0.38);
   seatMesh.castShadow = true;
   root.add(seatMesh);
 
-  // 5. EXHAUST SYSTEM & NITRO FLAME CONE
-  const exhaustGeo = new THREE.CylinderGeometry(0.048, 0.062, 1.1, 12);
+  // 5. EXHAUST SYSTEM (Header Pipe + Muffler + Heat Shield) & NITRO FLAME CONE
+  const exhaustGeo = new THREE.CylinderGeometry(0.05, 0.065, 1.12, 12);
   exhaustGeo.rotateX(Math.PI / 2);
   const exhaustMat =
     customization.exhaustType === 'sport' || customization.exhaustType === 'direto'
-      ? new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness: 0.18, metalness: 0.92 })
+      ? new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness: 0.16, metalness: 0.94 })
       : chromeMat;
   const exhaustMesh = new THREE.Mesh(exhaustGeo, exhaustMat);
   exhaustMesh.position.set(0.19, 0.3, -0.4);
   exhaustMesh.rotation.x = -0.15;
   exhaustMesh.castShadow = !isLow;
   root.add(exhaustMesh);
+
+  // Exhaust collector bend from engine + perforated heat shield
+  const headerPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 0.42, 8), chromeMat);
+  headerPipe.position.set(0.16, 0.33, 0.22);
+  headerPipe.rotation.x = Math.PI / 3;
+  root.add(headerPipe);
   root.exhaustTip = new THREE.Vector3(0.19, 0.26, -0.95);
 
   // Nitro Blue/Cyan Jet Flame at Exhaust Tip
-  const flameGeo = new THREE.ConeGeometry(0.09, 0.65, 10);
+  const flameGeo = new THREE.ConeGeometry(0.095, 0.68, 10);
   flameGeo.rotateX(-Math.PI / 2);
   const flameMat = new THREE.MeshBasicMaterial({
     color: 0x38bdf8,
@@ -852,7 +1372,7 @@ export function createMotorcycle(
   root.add(nitroFlameMesh);
   root.nitroFlameMesh = nitroFlameMesh;
 
-  // 6. REAR WHEEL, SWINGARM & SHOCK SPRINGS
+  // 6. REAR WHEEL (6 Spokes + Ventilated Brake Disc + Treaded Tire), SWINGARM & SHOCK SPRINGS
   const swingarmGeo = new THREE.BoxGeometry(0.06, 0.06, 0.65);
   const swingarmMesh = new THREE.Mesh(swingarmGeo, darkMetalMat);
   swingarmMesh.position.set(0, 0.35, -0.55);
@@ -869,18 +1389,33 @@ export function createMotorcycle(
   rightShock.rotation.x = 0.25;
   root.add(leftShock, rightShock);
 
-  const wheelGeo = new THREE.TorusGeometry(0.32, 0.095, 14, 26);
+  const wheelGeo = new THREE.TorusGeometry(0.32, 0.095, 14, 28);
   wheelGeo.rotateY(Math.PI / 2);
-  const rimGeo = new THREE.CylinderGeometry(0.13, 0.13, 0.14, 16);
+  const rimGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.14, 16);
   rimGeo.rotateZ(Math.PI / 2);
-  const spokeGeo = new THREE.BoxGeometry(0.13, 0.56, 0.045);
+  const outerRimRingGeo = new THREE.TorusGeometry(0.235, 0.022, 8, 24);
+  outerRimRingGeo.rotateY(Math.PI / 2);
+  const spokeGeo = new THREE.BoxGeometry(0.055, 0.48, 0.032);
+  const brakeDiscGeo = new THREE.CylinderGeometry(0.19, 0.19, 0.018, 16);
+  brakeDiscGeo.rotateZ(Math.PI / 2);
 
-  const rearTireMesh = new THREE.Mesh(wheelGeo, rubberMat);
-  const rearRimMesh = new THREE.Mesh(rimGeo, chromeMat);
-  const rearSpoke1 = new THREE.Mesh(spokeGeo, chromeMat);
-  const rearSpoke2 = new THREE.Mesh(spokeGeo, chromeMat);
-  rearSpoke2.rotation.x = Math.PI / 2;
-  rearTireMesh.add(rearRimMesh, rearSpoke1, rearSpoke2);
+  const buildDetailedWheel = () => {
+    const tire = new THREE.Mesh(wheelGeo, rubberMat);
+    const hub = new THREE.Mesh(rimGeo, chromeMat);
+    const alloyRim = new THREE.Mesh(outerRimRingGeo, chromeMat);
+    const brakeDisc = new THREE.Mesh(brakeDiscGeo, chromeMat);
+    brakeDisc.position.x = -0.065;
+    tire.add(hub, alloyRim, brakeDisc);
+    // 6-spoke star alloy wheel
+    for (let s = 0; s < 3; s++) {
+      const sp = new THREE.Mesh(spokeGeo, chromeMat);
+      sp.rotation.x = (s * Math.PI) / 3;
+      tire.add(sp);
+    }
+    return tire;
+  };
+
+  const rearTireMesh = buildDetailedWheel();
   rearTireMesh.position.set(0, 0.32, -0.85);
   rearTireMesh.castShadow = true;
   root.add(rearTireMesh);
@@ -911,20 +1446,35 @@ export function createMotorcycle(
   handlebarMesh.position.set(0, 0.42, 0);
   frontForkGroup.add(handlebarMesh);
 
-  // Rear-view mirrors (retrovisores de motoboy)
+  // Rear-view mirrors with reflective glass lenses (retrovisores de motoboy)
   const mirrorStemGeo = new THREE.CylinderGeometry(0.012, 0.012, 0.18, 6);
-  const mirrorHeadGeo = new THREE.BoxGeometry(0.12, 0.07, 0.03);
+  const mirrorHeadGeo = new THREE.BoxGeometry(0.13, 0.075, 0.032);
+  const mirrorGlassMat = new THREE.MeshStandardMaterial({
+    color: 0xbae6fd,
+    roughness: 0.04,
+    metalness: 0.98,
+  });
   const leftMirror = new THREE.Mesh(mirrorHeadGeo, darkMetalMat);
   leftMirror.position.set(-0.36, 0.56, 0.04);
+  const leftMirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.11, 0.055), mirrorGlassMat);
+  leftMirrorGlass.position.set(0, 0, -0.018);
+  leftMirrorGlass.rotation.y = Math.PI;
+  leftMirror.add(leftMirrorGlass);
+
   const rightMirror = new THREE.Mesh(mirrorHeadGeo, darkMetalMat);
   rightMirror.position.set(0.36, 0.56, 0.04);
+  const rightMirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.11, 0.055), mirrorGlassMat);
+  rightMirrorGlass.position.set(0, 0, -0.018);
+  rightMirrorGlass.rotation.y = Math.PI;
+  rightMirror.add(rightMirrorGlass);
+
   const leftStem = new THREE.Mesh(mirrorStemGeo, chromeMat);
   leftStem.position.set(-0.3, 0.49, 0.02);
   const rightStem = new THREE.Mesh(mirrorStemGeo, chromeMat);
   rightStem.position.set(0.3, 0.49, 0.02);
   frontForkGroup.add(leftMirror, rightMirror, leftStem, rightStem);
 
-  // Grips
+  // Grips + Hand Levers (Manetes de freio/embreagem)
   const gripGeo = new THREE.CylinderGeometry(0.036, 0.036, 0.13, 8);
   gripGeo.rotateZ(Math.PI / 2);
   const leftGrip = new THREE.Mesh(gripGeo, rubberMat);
@@ -933,23 +1483,18 @@ export function createMotorcycle(
   rightGrip.position.set(0.33, 0.42, 0);
   frontForkGroup.add(leftGrip, rightGrip);
 
-  // Headlight casing & lens
-  const headlightHousingGeo = new THREE.CylinderGeometry(0.11, 0.09, 0.16, 12);
+  // Headlight casing & glowing lens
+  const headlightHousingGeo = new THREE.CylinderGeometry(0.115, 0.09, 0.16, 12);
   headlightHousingGeo.rotateX(Math.PI / 2);
   const headlightHousing = new THREE.Mesh(headlightHousingGeo, darkMetalMat);
   headlightHousing.position.set(0, 0.28, 0.1);
-  const headlightLens = new THREE.Mesh(new THREE.CircleGeometry(0.095, 16), glassMat);
+  const headlightLens = new THREE.Mesh(new THREE.CircleGeometry(0.098, 16), glassMat);
   headlightLens.position.set(0, 0, 0.085);
   headlightHousing.add(headlightLens);
   frontForkGroup.add(headlightHousing);
 
-  // Front Wheel
-  const frontTireMesh = new THREE.Mesh(wheelGeo, rubberMat);
-  const frontRimMesh = new THREE.Mesh(rimGeo, chromeMat);
-  const frontSpoke1 = new THREE.Mesh(spokeGeo, chromeMat);
-  const frontSpoke2 = new THREE.Mesh(spokeGeo, chromeMat);
-  frontSpoke2.rotation.x = Math.PI / 2;
-  frontTireMesh.add(frontRimMesh, frontSpoke1, frontSpoke2);
+  // Front Wheel (6 Spokes + Brake Disc + Treaded Tire)
+  const frontTireMesh = buildDetailedWheel();
   frontTireMesh.position.set(0, -0.32, 0.08);
   frontTireMesh.castShadow = true;
   frontForkGroup.add(frontTireMesh);
@@ -969,7 +1514,7 @@ export function createMotorcycle(
   root.headlightLight = spotLight;
 
   // 8. TAILLIGHT & LICENSE PLATE
-  const taillightGeo = new THREE.BoxGeometry(0.16, 0.06, 0.05);
+  const taillightGeo = new THREE.BoxGeometry(0.17, 0.065, 0.05);
   const taillightMesh = new THREE.Mesh(taillightGeo, redGlassMat);
   taillightMesh.position.set(0, 0.66, -0.82);
   root.add(taillightMesh);
@@ -983,86 +1528,143 @@ export function createMotorcycle(
   rightBlinker.position.set(0.14, 0.64, -0.8);
   root.add(leftBlinker, rightBlinker);
 
-  // 9. DELIVERY BAÚ (TRUNK BOX)
+  // 9. DELIVERY BAÚ (REAR TRUNK BOX)
   const trunkTexture = createTrunkLogoTexture(customization.trunkSkin);
   const trunkMat = new THREE.MeshStandardMaterial({
     map: trunkTexture,
-    roughness: 0.35,
-    metalness: 0.2,
+    roughness: 0.32,
+    metalness: 0.22,
   });
-  const trunkGeo = new THREE.BoxGeometry(0.52, 0.48, 0.5);
+  const trunkGeo = new THREE.BoxGeometry(0.48, 0.42, 0.46);
   const trunkMesh = new THREE.Mesh(trunkGeo, trunkMat);
-  trunkMesh.position.set(0, 0.96, -0.76);
+  trunkMesh.position.set(0, 0.93, -0.78);
   trunkMesh.castShadow = true;
   root.add(trunkMesh);
   root.trunkMesh = trunkMesh;
 
-  // 10. MOTOBOY RIDER (Jacket, Reflective Strips, Helmet, Arms & Legs)
+  // 10. MOTOBOY RIDER (Proportional Torso, Jacket, Thermal Backpack with Logo, Helmet with Visor, Articulated Arms & Legs/Boots)
   const riderGroup = new THREE.Group();
   riderGroup.position.set(0, 0.65, -0.2);
 
-  // Jacket / Torso
-  const torsoGeo = new THREE.BoxGeometry(0.38, 0.5, 0.25);
-  const torsoMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.75 });
-  const torsoMesh = new THREE.Mesh(torsoGeo, torsoMat);
-  torsoMesh.position.set(0, 0.4, 0);
-  torsoMesh.rotation.x = 0.25;
+  const outfitColors = getRiderOutfitColors(customization.riderOutfit);
+  const torsoMat = new THREE.MeshStandardMaterial({ color: outfitColors.jacket, roughness: 0.72 });
+  root.jacketMat = torsoMat;
+
+  const stripeMat = new THREE.MeshBasicMaterial({ color: outfitColors.stripe });
+  root.stripeMat = stripeMat;
+
+  // Articulated Upper Body Pivot (for smooth torso lean in curves + thermal backpack sway)
+  const riderTorso = new THREE.Group();
+  riderTorso.position.set(0, 0.14, 0);
+
+  const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.24), torsoMat);
+  torsoMesh.position.set(0, 0.26, 0);
+  torsoMesh.rotation.x = 0.24;
   torsoMesh.castShadow = true;
-  riderGroup.add(torsoMesh);
+  riderTorso.add(torsoMesh);
 
-  // High-visibility neon safety stripe on jacket back
-  const safetyStripe = new THREE.Mesh(
-    new THREE.BoxGeometry(0.39, 0.07, 0.26),
-    new THREE.MeshBasicMaterial({ color: 0xa3e635 })
+  // Collar + High-visibility neon safety stripe on jacket
+  const safetyStripe = new THREE.Mesh(new THREE.BoxGeometry(0.395, 0.075, 0.255), stripeMat);
+  safetyStripe.position.set(0, 0.3, 0);
+  safetyStripe.rotation.x = 0.24;
+  riderTorso.add(safetyStripe);
+
+  // Thermal Delivery Backpack on Rider's Back (Mochila Térmica com Logo e Faixas Refletivas)
+  const backpackGroup = new THREE.Group();
+  backpackGroup.position.set(0, 0.34, -0.2);
+  backpackGroup.rotation.x = 0.22;
+  const bagBody = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.28), trunkMat);
+  bagBody.castShadow = !isLow;
+  const bagTopLid = new THREE.Mesh(
+    new THREE.BoxGeometry(0.44, 0.06, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 })
   );
-  safetyStripe.position.set(0, 0.44, 0);
-  safetyStripe.rotation.x = 0.25;
-  riderGroup.add(safetyStripe);
+  bagTopLid.position.y = 0.21;
+  const bagReflectiveStrip = new THREE.Mesh(
+    new THREE.BoxGeometry(0.43, 0.045, 0.29),
+    new THREE.MeshBasicMaterial({ color: 0x10b981 })
+  );
+  bagReflectiveStrip.position.y = -0.12;
+  backpackGroup.add(bagBody, bagTopLid, bagReflectiveStrip);
+  riderTorso.add(backpackGroup);
+  root.backpackMesh = backpackGroup;
 
-  // Rider Jeans / Legs & Boots
-  const jeansMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.85 });
-  const legGeo = new THREE.CylinderGeometry(0.065, 0.055, 0.48, 8);
-  const leftLeg = new THREE.Mesh(legGeo, jeansMat);
-  leftLeg.position.set(-0.18, 0.0, 0.08);
-  leftLeg.rotation.x = -0.35;
-  const rightLeg = new THREE.Mesh(legGeo, jeansMat);
-  rightLeg.position.set(0.18, 0.0, 0.08);
-  rightLeg.rotation.x = -0.35;
-  riderGroup.add(leftLeg, rightLeg);
-
-  // Helmet
+  // Helmet with Reflective Visor + Style Extras
   const helmetGeo = new THREE.SphereGeometry(0.185, 18, 18);
   const helmetMat = new THREE.MeshStandardMaterial({
     color: customization.helmetColor,
-    roughness: 0.18,
-    metalness: 0.55,
+    roughness: 0.16,
+    metalness: 0.58,
   });
   const helmetMesh = new THREE.Mesh(helmetGeo, helmetMat);
-  helmetMesh.position.set(0, 0.79, 0.1);
+  helmetMesh.position.set(0, 0.65, 0.1);
   helmetMesh.castShadow = true;
 
-  // Visor
-  const visorGeo = new THREE.BoxGeometry(0.25, 0.1, 0.12);
+  // Curved Reflective Visor
+  const visorGeo = new THREE.BoxGeometry(0.255, 0.105, 0.13);
   const visorMat = new THREE.MeshStandardMaterial({
     color: 0x090d16,
-    roughness: 0.08,
-    metalness: 0.92,
+    roughness: 0.06,
+    metalness: 0.95,
   });
   const visorMesh = new THREE.Mesh(visorGeo, visorMat);
   visorMesh.position.set(0, 0.0, 0.12);
   helmetMesh.add(visorMesh);
 
-  riderGroup.add(helmetMesh);
+  const helmetExtrasGroup = new THREE.Group();
+  populateHelmetStyleExtras(helmetExtrasGroup, customization.helmetStyle || 'street', customization.helmetColor);
+  helmetMesh.add(helmetExtrasGroup);
+  root.helmetExtrasGroup = helmetExtrasGroup;
+
+  riderTorso.add(helmetMesh);
   root.helmetMesh = helmetMesh;
 
-  // Arms leaning to handlebars
-  const armGeo = new THREE.CylinderGeometry(0.045, 0.04, 0.45, 8);
-  armGeo.rotateX(Math.PI / 3);
-  const leftArm = new THREE.Mesh(armGeo, torsoMat);
-  leftArm.position.set(-0.24, 0.38, 0.18);
-  const rightArm = new THREE.Mesh(armGeo, torsoMat);
-  rightArm.position.set(0.24, 0.38, 0.18);
-  riderGroup.add(leftArm, rightArm);
+  // Articulated Arms & Gloves gripping handlebars
+  const gloveMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.55 });
+  const buildRiderArm = (side: number) => {
+    const armPivot = new THREE.Group();
+    armPivot.position.set(side * 0.23, 0.42, 0.06);
+    const armCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.04, 0.46, 8), torsoMat);
+    armCyl.rotation.x = Math.PI / 2.9;
+    armCyl.position.set(0, -0.06, 0.16);
+    const glove = new THREE.Mesh(new THREE.SphereGeometry(0.052, 8, 8), gloveMat);
+    glove.position.set(0, -0.16, 0.36);
+    armPivot.add(armCyl, glove);
+    return armPivot;
+  };
+  const leftArmGroup = buildRiderArm(-1);
+  const rightArmGroup = buildRiderArm(1);
+  riderTorso.add(leftArmGroup, rightArmGroup);
+  root.riderLeftArm = leftArmGroup;
+  root.riderRightArm = rightArmGroup;
+
+  riderGroup.add(riderTorso);
+  root.riderTorso = riderTorso;
+
+  // Articulated Rider Jeans / Legs & Riding Boots (Left leg pivots down to the ground when stopped!)
+  const jeansMat = new THREE.MeshStandardMaterial({ color: outfitColors.pants, roughness: 0.82 });
+  root.pantsMat = jeansMat;
+  const bootMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, metalness: 0.2 });
+  const bootSoleMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.7 });
+
+  const buildRiderLeg = (side: number) => {
+    const legPivot = new THREE.Group();
+    legPivot.position.set(side * 0.17, 0.12, 0.04);
+    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.056, 0.46, 8), jeansMat);
+    thigh.position.set(0, -0.18, 0.06);
+    thigh.rotation.x = -0.32;
+    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.12, 0.22), bootMat);
+    boot.position.set(0, -0.4, 0.02);
+    const sole = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.025, 0.225), bootSoleMat);
+    sole.position.set(0, -0.46, 0.02);
+    legPivot.add(thigh, boot, sole);
+    return legPivot;
+  };
+  const leftLegGroup = buildRiderLeg(-1);
+  const rightLegGroup = buildRiderLeg(1);
+  riderGroup.add(leftLegGroup, rightLegGroup);
+  root.riderLeftLeg = leftLegGroup;
+  root.riderRightLeg = rightLegGroup;
 
   root.add(riderGroup);
   root.riderMesh = riderGroup;
@@ -1123,7 +1725,7 @@ export function createMotorcycle(
   return root;
 }
 
-export type VehicleArchetype = 'sedan' | 'suv' | 'pickup' | 'taxi' | 'van' | 'police' | 'bus';
+export type VehicleArchetype = 'sedan' | 'suv' | 'pickup' | 'taxi' | 'van' | 'truck' | 'police' | 'bus';
 
 /**
  * Creates a Mercosul license plate texture
@@ -1197,7 +1799,7 @@ function getCarShadowTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Creates high-detail 3D traffic vehicles (Sedan, Taxi, SUV, Pickup, Delivery Van, Police Cruiser, Urban Bus)
+ * Creates high-detail 3D traffic vehicles (Sedan, Taxi, SUV, Pickup, Delivery Van, Urban Box Truck, Police Cruiser, Urban Bus)
  */
 export function createTrafficCar(
   colorHex: number,
@@ -1213,30 +1815,35 @@ export function createTrafficCar(
       ? 0xf8fafc
       : archetype === 'bus'
       ? 0x0ea5e9
+      : archetype === 'truck'
+      ? 0xf8fafc
       : colorHex;
 
   const bodyMat = new THREE.MeshStandardMaterial({
     color: effectiveColor,
-    roughness: 0.22,
-    metalness: 0.68,
+    roughness: 0.2,
+    metalness: 0.72,
   });
 
   const darkTrimMat = new THREE.MeshStandardMaterial({
     color: 0x111827,
-    roughness: 0.6,
-    metalness: 0.3,
+    roughness: 0.58,
+    metalness: 0.35,
   });
 
   const chromeMat = new THREE.MeshStandardMaterial({
     color: 0xe2e8f0,
-    roughness: 0.15,
-    metalness: 0.92,
+    roughness: 0.14,
+    metalness: 0.94,
   });
 
+  // Reflective automotive glass with subtle sky-blue tint
   const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
-    roughness: 0.08,
-    metalness: 0.92,
+    color: 0x1e293b,
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.14,
+    roughness: 0.05,
+    metalness: 0.96,
   });
 
   const tireMat = new THREE.MeshStandardMaterial({
@@ -1393,7 +2000,7 @@ export function createTrafficCar(
   }
 
   // 1. Ground Contact Shadow
-  const shadowGeo = new THREE.PlaneGeometry(2.2, 4.4);
+  const shadowGeo = new THREE.PlaneGeometry(2.2, archetype === 'truck' ? 5.2 : 4.4);
   shadowGeo.rotateX(-Math.PI / 2);
   const shadowMat = new THREE.MeshBasicMaterial({
     map: getCarShadowTexture(),
@@ -1406,9 +2013,9 @@ export function createTrafficCar(
   car.add(shadowMesh);
 
   // 2. Main Sculpted Lower Body & Wheel Arches
-  const bodyHeight = archetype === 'suv' || archetype === 'van' ? 0.58 : 0.48;
-  const chassisGeo = new THREE.BoxGeometry(1.74, bodyHeight, 3.85);
-  const chassisMesh = new THREE.Mesh(chassisGeo, bodyMat);
+  const bodyHeight = archetype === 'suv' || archetype === 'van' || archetype === 'truck' ? 0.58 : 0.48;
+  const chassisGeo = new THREE.BoxGeometry(1.74, bodyHeight, archetype === 'truck' ? 4.35 : 3.85);
+  const chassisMesh = new THREE.Mesh(chassisGeo, archetype === 'truck' ? darkTrimMat : bodyMat);
   chassisMesh.position.set(0, 0.34 + bodyHeight / 2, 0);
   chassisMesh.castShadow = !isLow;
   chassisMesh.receiveShadow = !isLow;
@@ -1421,19 +2028,20 @@ export function createTrafficCar(
   car.add(skirtMesh);
 
   // Front & Rear Bumpers
-  const bumperGeo = new THREE.BoxGeometry(1.8, 0.24, 0.22);
+  const halfLen = archetype === 'truck' ? 2.15 : 1.9;
+  const bumperGeo = new THREE.BoxGeometry(1.82, 0.24, 0.22);
   const frontBumper = new THREE.Mesh(bumperGeo, darkTrimMat);
-  frontBumper.position.set(0, 0.36, 1.9);
+  frontBumper.position.set(0, 0.36, halfLen);
   const rearBumper = new THREE.Mesh(bumperGeo, darkTrimMat);
-  rearBumper.position.set(0, 0.36, -1.9);
+  rearBumper.position.set(0, 0.36, -halfLen);
   car.add(frontBumper, rearBumper);
 
   // Front Grille & Chrome Bar
   const grilleGeo = new THREE.BoxGeometry(0.95, 0.22, 0.06);
   const grilleMesh = new THREE.Mesh(grilleGeo, darkTrimMat);
-  grilleMesh.position.set(0, 0.54, 1.92);
+  grilleMesh.position.set(0, 0.54, halfLen + 0.02);
   const grilleChrome = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.04, 0.08), chromeMat);
-  grilleChrome.position.set(0, 0.58, 1.92);
+  grilleChrome.position.set(0, 0.58, halfLen + 0.02);
   car.add(grilleMesh, grilleChrome);
 
   // Mercosul License Plates (Front & Rear)
@@ -1441,14 +2049,50 @@ export function createTrafficCar(
   const plateMat = new THREE.MeshBasicMaterial({ map: _sharedPlateTex });
   const plateGeo = new THREE.PlaneGeometry(0.42, 0.15);
   const frontPlate = new THREE.Mesh(plateGeo, plateMat);
-  frontPlate.position.set(0, 0.35, 2.02);
+  frontPlate.position.set(0, 0.35, halfLen + 0.12);
   const rearPlate = new THREE.Mesh(plateGeo, plateMat);
-  rearPlate.position.set(0, 0.35, -2.02);
+  rearPlate.position.set(0, 0.35, -halfLen - 0.12);
   rearPlate.rotation.y = Math.PI;
   car.add(frontPlate, rearPlate);
 
   // 3. Archetype-Specific Upper Cabin & Features
-  if (archetype === 'van') {
+  if (archetype === 'truck') {
+    // Urban Box Truck (Caminhão Baú VUC de Entregas)
+    const cabMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.24, metalness: 0.65 });
+    const cabBox = new THREE.Mesh(new THREE.BoxGeometry(1.72, 1.18, 1.25), cabMat);
+    cabBox.position.set(0, 1.15, 1.48);
+    cabBox.castShadow = !isLow;
+    const truckWindshield = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.62, 0.12), glassMat);
+    truckWindshield.position.set(0, 1.32, 2.08);
+    // Aerodynamic wind deflector on cab roof
+    const windDeflector = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.36, 0.65), cabMat);
+    windDeflector.position.set(0, 1.85, 1.35);
+    windDeflector.rotation.x = -0.28;
+
+    // Large Corrugated Aluminum Cargo Box (Baú de Carga)
+    const cargoBoxMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: 0.35,
+      metalness: 0.4,
+    });
+    const cargoBox = new THREE.Mesh(new THREE.BoxGeometry(1.92, 1.72, 2.95), cargoBoxMat);
+    cargoBox.position.set(0, 1.48, -0.68);
+    cargoBox.castShadow = !isLow;
+
+    // Emerald & Orange Logistics Livery Stripes on Cargo Box
+    const stripeEmerald = new THREE.Mesh(
+      new THREE.BoxGeometry(1.95, 0.2, 2.85),
+      new THREE.MeshBasicMaterial({ color: 0x10b981 })
+    );
+    stripeEmerald.position.set(0, 1.55, -0.68);
+    const stripeOrange = new THREE.Mesh(
+      new THREE.BoxGeometry(1.95, 0.1, 2.85),
+      new THREE.MeshBasicMaterial({ color: 0xf97316 })
+    );
+    stripeOrange.position.set(0, 1.36, -0.68);
+
+    car.add(cabBox, truckWindshield, windDeflector, cargoBox, stripeEmerald, stripeOrange);
+  } else if (archetype === 'van') {
     // High-roof Delivery Van
     const vanCabin = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.95, 3.1), bodyMat);
     vanCabin.position.set(0, 1.25, -0.25);
@@ -1614,9 +2258,9 @@ export function createTrafficCar(
   });
   const headGeo = new THREE.BoxGeometry(0.32, 0.13, 0.06);
   const leftHead = new THREE.Mesh(headGeo, headMat);
-  leftHead.position.set(-0.6, 0.56, 1.92);
+  leftHead.position.set(-0.6, 0.56, halfLen + 0.02);
   const rightHead = new THREE.Mesh(headGeo, headMat);
-  rightHead.position.set(0.6, 0.56, 1.92);
+  rightHead.position.set(0.6, 0.56, halfLen + 0.02);
   car.add(leftHead, rightHead);
 
   // 6. Rear Brake Lights & Lightbar (exposed in userData for dynamic braking glow)
@@ -1627,26 +2271,27 @@ export function createTrafficCar(
   });
   const tailGeo = new THREE.BoxGeometry(0.36, 0.14, 0.06);
   const leftTail = new THREE.Mesh(tailGeo, tailMat);
-  leftTail.position.set(-0.58, 0.58, -1.92);
+  leftTail.position.set(-0.58, 0.58, -halfLen - 0.02);
   const rightTail = new THREE.Mesh(tailGeo, tailMat);
-  rightTail.position.set(0.58, 0.58, -1.92);
+  rightTail.position.set(0.58, 0.58, -halfLen - 0.02);
   const centerTailBar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.05), tailMat);
-  centerTailBar.position.set(0, 0.61, -1.92);
+  centerTailBar.position.set(0, 0.61, -halfLen - 0.02);
   car.add(leftTail, rightTail, centerTailBar);
 
   // 7. 4 Detailed Wheels with Tires + Alloy Rims
-  const wheelRadius = archetype === 'suv' || archetype === 'pickup' ? 0.34 : 0.3;
+  const wheelRadius = archetype === 'suv' || archetype === 'pickup' || archetype === 'truck' ? 0.35 : 0.3;
   const tireGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.24, 16);
   tireGeo.rotateZ(Math.PI / 2);
   const rimGeo = new THREE.CylinderGeometry(wheelRadius * 0.62, wheelRadius * 0.62, 0.25, 12);
   rimGeo.rotateZ(Math.PI / 2);
   const spokeGeo = new THREE.BoxGeometry(0.26, wheelRadius * 1.1, 0.06);
 
+  const wheelZ = archetype === 'truck' ? 1.38 : 1.18;
   const wheelPositions = [
-    { x: -0.84, y: wheelRadius, z: 1.18 },
-    { x: 0.84, y: wheelRadius, z: 1.18 },
-    { x: -0.84, y: wheelRadius, z: -1.18 },
-    { x: 0.84, y: wheelRadius, z: -1.18 },
+    { x: -0.84, y: wheelRadius, z: wheelZ },
+    { x: 0.84, y: wheelRadius, z: wheelZ },
+    { x: -0.84, y: wheelRadius, z: -wheelZ },
+    { x: 0.84, y: wheelRadius, z: -wheelZ },
   ];
 
   const wheels: THREE.Group[] = [];
@@ -1677,18 +2322,18 @@ export function createTrafficCar(
   });
   const blinkerGeo = new THREE.BoxGeometry(0.14, 0.11, 0.08);
   const flBlinker = new THREE.Mesh(blinkerGeo, blinkerLeftMat);
-  flBlinker.position.set(0.82, 0.56, 1.91);
+  flBlinker.position.set(0.82, 0.56, halfLen + 0.01);
   const rlBlinker = new THREE.Mesh(blinkerGeo, blinkerLeftMat);
-  rlBlinker.position.set(0.82, 0.58, -1.91);
+  rlBlinker.position.set(0.82, 0.58, -halfLen - 0.01);
   const frBlinker = new THREE.Mesh(blinkerGeo, blinkerRightMat);
-  frBlinker.position.set(-0.82, 0.56, 1.91);
+  frBlinker.position.set(-0.82, 0.56, halfLen + 0.01);
   const rrBlinker = new THREE.Mesh(blinkerGeo, blinkerRightMat);
-  rrBlinker.position.set(-0.82, 0.58, -1.91);
+  rrBlinker.position.set(-0.82, 0.58, -halfLen - 0.01);
   car.add(flBlinker, rlBlinker, frBlinker, rrBlinker);
 
   // 8. Smart Driver Overhead Status Badge (Visible when reacting to player, turning, or honking!)
   const driverHud = createCharacterHealthBar('🚗 MOTORISTA ATENTO', 100, '#38bdf8');
-  driverHud.sprite.position.set(0, 2.15, 0);
+  driverHud.sprite.position.set(0, archetype === 'truck' ? 2.55 : 2.15, 0);
   driverHud.sprite.scale.set(2.3, 0.55, 1);
   driverHud.sprite.visible = false;
   car.add(driverHud.sprite);
@@ -1951,14 +2596,18 @@ export function createTrafficLightGantry(isLow: boolean = false): TrafficLightGr
 }
 
 /**
- * Articulated 3D Urban Pedestrian with swinging arms, legs & scream speech bubble
+ * Articulated 3D Urban Pedestrian & Customer with 12+ combinatorial variations
+ * (height scale, clothing, skin tone, hairstyles/hats, and accessories)
  */
 export interface PedestrianGroup extends THREE.Group {
   leftArm: THREE.Group;
   rightArm: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
+  headGroup: THREE.Group;
   screamSprite: THREE.Sprite;
+  baseScaleY: number;
+  baseScaleXZ: number;
 }
 
 let sharedScreamTex: THREE.CanvasTexture | null = null;
@@ -1996,17 +2645,29 @@ export function createPedestrian(
   pantsColor: number,
   skinColor: number,
   hasAccessory: boolean = false,
-  isLow: boolean = false
+  isLow: boolean = false,
+  variantIdx: number = 0
 ): PedestrianGroup {
   const ped = new THREE.Group() as PedestrianGroup;
 
+  // Height & build variation across 12+ combinations
+  const heightScales = [0.92, 0.97, 1.0, 1.04, 1.08, 0.95, 1.02, 1.06];
+  const widthScales = [0.95, 1.0, 1.05, 0.98, 1.02, 1.08, 0.94, 1.0];
+  ped.baseScaleY = heightScales[variantIdx % heightScales.length];
+  ped.baseScaleXZ = widthScales[variantIdx % widthScales.length];
+  ped.scale.set(ped.baseScaleXZ, ped.baseScaleY, ped.baseScaleXZ);
+
+  const hairColors = [0x1c1917, 0x451a03, 0x78350f, 0xd97706, 0x090d16, 0x991b1b];
   const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.65 });
-  const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.7 });
-  const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.8 });
-  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 });
+  const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.68 });
+  const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.78 });
+  const shoeMat = new THREE.MeshStandardMaterial({
+    color: variantIdx % 3 === 0 ? 0xf8fafc : 0x1e293b,
+    roughness: 0.55,
+  });
   const hairMat = new THREE.MeshStandardMaterial({
-    color: shirtColor % 2 === 0 ? 0x1c1917 : 0x451a03,
-    roughness: 0.85,
+    color: hairColors[variantIdx % hairColors.length],
+    roughness: 0.82,
   });
 
   // Ground shadow disc (Disabled in extreme low)
@@ -2025,29 +2686,88 @@ export function createPedestrian(
     ped.add(shadow);
   }
 
-  // Torso
+  // Torso + subtle collar/belt accent
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.56, 0.24), shirtMat);
   torso.position.y = 1.04;
   torso.castShadow = !isLow;
   ped.add(torso);
 
-  // Head + Hair
+  // Articulated Head Group (can turn slightly when waiting at traffic lights or waving)
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 1.48, 0);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, isLow ? 7 : 12, isLow ? 5 : 10), skinMat);
-  head.position.y = 1.48;
   head.castShadow = !isLow;
-  ped.add(head);
+  headGroup.add(head);
 
-  const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, isLow ? 7 : 12, isLow ? 4 : 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
-    hairMat
-  );
-  hair.position.y = 1.5;
-  hair.rotation.x = -0.15;
-  ped.add(hair);
+  // 4 Distinct Hairstyle / Cap Variations
+  const hairStyle = variantIdx % 4;
+  if (hairStyle === 0) {
+    // Classic short hair dome
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, isLow ? 7 : 12, isLow ? 4 : 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      hairMat
+    );
+    hair.position.y = 0.02;
+    hair.rotation.x = -0.15;
+    headGroup.add(hair);
+  } else if (hairStyle === 1) {
+    // Voluminous curly afro / puff
+    const afro = new THREE.Mesh(new THREE.SphereGeometry(0.215, isLow ? 7 : 10, isLow ? 5 : 8), hairMat);
+    afro.position.set(0, 0.06, -0.02);
+    headGroup.add(afro);
+  } else if (hairStyle === 2) {
+    // Urban Baseball Cap with front visor
+    const capMat = new THREE.MeshStandardMaterial({
+      color: variantIdx % 2 === 0 ? 0x10b981 : 0xf97316,
+      roughness: 0.45,
+    });
+    const capCrown = new THREE.Mesh(
+      new THREE.SphereGeometry(0.182, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      capMat
+    );
+    capCrown.position.y = 0.02;
+    const capBrim = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.16), capMat);
+    capBrim.position.set(0, 0.03, 0.14);
+    headGroup.add(capCrown, capBrim);
+  } else {
+    // Ponytail / Bun hairstyle
+    const hairBase = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      hairMat
+    );
+    hairBase.position.y = 0.02;
+    const ponytail = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), hairMat);
+    ponytail.position.set(0, 0.02, -0.19);
+    headGroup.add(hairBase, ponytail);
+  }
 
-  // Optional Backpack or Shopping Bag (Only in high quality)
-  if (hasAccessory && !isLow) {
-    const packMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5 });
+  // Optional Sunglasses or Headphones on Head
+  if (!isLow && (variantIdx % 5 === 1 || variantIdx % 5 === 3)) {
+    const darkAccMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.2, metalness: 0.8 });
+    if (variantIdx % 2 === 0) {
+      // Stylish Sunglasses
+      const glasses = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.055, 0.05), darkAccMat);
+      glasses.position.set(0, 0.01, 0.155);
+      headGroup.add(glasses);
+    } else {
+      // Over-ear Headphones
+      const earL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.11, 0.09), darkAccMat);
+      earL.position.set(-0.175, 0.0, 0);
+      const earR = earL.clone();
+      earR.position.x = 0.175;
+      headGroup.add(earL, earR);
+    }
+  }
+
+  ped.add(headGroup);
+  ped.headGroup = headGroup;
+
+  // Optional Backpack on back (when hasAccessory or even variant)
+  if ((hasAccessory || variantIdx % 4 === 0) && !isLow) {
+    const packMat = new THREE.MeshStandardMaterial({
+      color: variantIdx % 2 === 0 ? 0xf97316 : 0x10b981,
+      roughness: 0.5,
+    });
     const pack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.38, 0.16), packMat);
     pack.position.set(0, 1.06, -0.18);
     ped.add(pack);
@@ -2062,6 +2782,14 @@ export function createPedestrian(
     const hand = new THREE.Mesh(new THREE.SphereGeometry(0.065, isLow ? 5 : 8, isLow ? 4 : 8), skinMat);
     hand.position.y = -0.44;
     armGroup.add(upperArm, hand);
+
+    // Optional Shopping Bag in left hand for shoppers
+    if (!isLow && side === 1 && variantIdx % 5 === 2) {
+      const bagMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.6 });
+      const shopBag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.22), bagMat);
+      shopBag.position.set(0.05, -0.56, 0);
+      armGroup.add(shopBag);
+    }
     return armGroup;
   };
 
@@ -2130,11 +2858,14 @@ export function createTauntBubbleTexture(text: string): THREE.CanvasTexture {
 }
 
 export interface OnFootMotoboyGroup extends THREE.Group {
+  torsoGroup: THREE.Group;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
   helmetMesh: THREE.Mesh;
+  backpackMesh: THREE.Group;
+  deliveryPackageMesh: THREE.Group;
 }
 
 export function createOnFootMotoboy(helmetColor: string): OnFootMotoboyGroup {
@@ -2159,18 +2890,35 @@ export function createOnFootMotoboy(helmetColor: string): OnFootMotoboyGroup {
   shadow.position.y = 0.03;
   player.add(shadow);
 
+  // Upper Body Torso Group (leans forward when running vs walking)
+  const torsoGroup = new THREE.Group();
+  torsoGroup.position.set(0, 0.76, 0);
+
   // Torso + Neon Safety Stripe
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.56, 0.26), jacketMat);
-  torso.position.y = 1.05;
+  torso.position.y = 0.29;
   torso.castShadow = true;
-  player.add(torso);
+  torsoGroup.add(torso);
 
   const stripe = new THREE.Mesh(
     new THREE.BoxGeometry(0.45, 0.08, 0.27),
-    new THREE.MeshBasicMaterial({ color: 0xa3e635 })
+    new THREE.MeshBasicMaterial({ color: 0x10b981 })
   );
-  stripe.position.y = 1.1;
-  player.add(stripe);
+  stripe.position.y = 0.34;
+  torsoGroup.add(stripe);
+
+  // Thermal Delivery Backpack on Rider's Back in "A PÉ" mode
+  const backpackGroup = new THREE.Group();
+  backpackGroup.position.set(0, 0.32, -0.24);
+  const bagMat = new THREE.MeshStandardMaterial({
+    map: createTrunkLogoTexture('ifood'),
+    roughness: 0.35,
+  });
+  const bagBox = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.26), bagMat);
+  bagBox.castShadow = true;
+  backpackGroup.add(bagBox);
+  torsoGroup.add(backpackGroup);
+  player.backpackMesh = backpackGroup;
 
   // Helmet + Visor
   const helmetMat = new THREE.MeshStandardMaterial({
@@ -2179,7 +2927,7 @@ export function createOnFootMotoboy(helmetColor: string): OnFootMotoboyGroup {
     metalness: 0.55,
   });
   const helmetMesh = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 16), helmetMat);
-  helmetMesh.position.y = 1.54;
+  helmetMesh.position.y = 0.78;
   helmetMesh.castShadow = true;
   const visor = new THREE.Mesh(
     new THREE.BoxGeometry(0.26, 0.11, 0.14),
@@ -2187,13 +2935,13 @@ export function createOnFootMotoboy(helmetColor: string): OnFootMotoboyGroup {
   );
   visor.position.set(0, 0, 0.14);
   helmetMesh.add(visor);
-  player.add(helmetMesh);
+  torsoGroup.add(helmetMesh);
   player.helmetMesh = helmetMesh;
 
-  // Articulated Arms
+  // Articulated Arms attached to torsoGroup
   const makeArm = (side: number) => {
     const g = new THREE.Group();
-    g.position.set(side * 0.28, 1.28, 0);
+    g.position.set(side * 0.28, 0.52, 0);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.46, 0.13), jacketMat);
     arm.position.y = -0.2;
     const glove = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), gloveMat);
@@ -2203,7 +2951,23 @@ export function createOnFootMotoboy(helmetColor: string): OnFootMotoboyGroup {
   };
   player.leftArm = makeArm(1);
   player.rightArm = makeArm(-1);
-  player.add(player.leftArm, player.rightArm);
+  torsoGroup.add(player.leftArm, player.rightArm);
+
+  // 3D Delivery Package held out in front when delivering an order on foot
+  const pkgGroup = new THREE.Group();
+  pkgGroup.position.set(0, 0.2, 0.34);
+  pkgGroup.visible = false;
+  const kraftMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.75 });
+  const sealMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+  const pkgBox = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.24, 0.22), kraftMat);
+  const pkgSeal = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.23), sealMat);
+  pkgSeal.position.y = 0.11;
+  pkgGroup.add(pkgBox, pkgSeal);
+  torsoGroup.add(pkgGroup);
+  player.deliveryPackageMesh = pkgGroup;
+
+  player.add(torsoGroup);
+  player.torsoGroup = torsoGroup;
 
   // Articulated Legs
   const makeLeg = (side: number) => {

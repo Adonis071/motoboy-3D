@@ -76,6 +76,8 @@ interface HUDProps {
     shelterName?: string;
     isSevereStorm?: boolean;
     isAquaplaning?: boolean;
+    fuelPct?: number;
+    isSkidding?: boolean;
   };
   weather: WeatherConfig;
   timeShift: TimeShift;
@@ -89,6 +91,7 @@ interface HUDProps {
   trainingRingsPassed?: number;
   onOpenShop: () => void;
   onRepairBike?: () => void;
+  onRefuelBike?: () => void;
   onToggleMount?: () => void;
   onTriggerJump?: () => void;
   onTriggerMelee?: (type: 'punch' | 'push') => void;
@@ -122,7 +125,7 @@ interface HUDProps {
 }
 
 function clamp(val: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, val));
+  return Math.max(min, Math.min(val, max));
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -130,6 +133,7 @@ export const HUD: React.FC<HUDProps> = ({
   currentOrder,
   telemetry,
   onRepairBike,
+  onRefuelBike,
   onToggleMount,
   onTriggerJump,
   onTriggerMelee,
@@ -435,15 +439,18 @@ export const HUD: React.FC<HUDProps> = ({
   const isPickup = currentOrder?.state === 'to_pickup';
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-2 sm:p-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] font-['Plus_Jakarta_Sans',sans-serif] select-none overflow-hidden">
-      {/* 1. TOP BAR: COMPACT START, MISSIONS, PHONE & MINIMAP */}
-      <div className="flex items-start justify-between w-full gap-2">
-        {/* TOP-LEFT COMPACT PILLS */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+    <div
+      translate="no"
+      className="notranslate absolute inset-0 pointer-events-none z-10 flex flex-col justify-between px-2.5 sm:px-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(1.1rem,calc(env(safe-area-inset-bottom)+0.75rem))] sm:pb-4 pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] font-['Plus_Jakarta_Sans',sans-serif] select-none overflow-hidden"
+    >
+      {/* 1. TOP BAR: COMPACT SINGLE-ROW START, MISSIONS, PHONE & MINIMAP */}
+      <div className="flex items-start justify-between w-full gap-1.5">
+        {/* TOP-LEFT COMPACT PILLS (Forced single line on mobile so CELULAR never wraps) */}
+        <div className="flex items-center gap-1 sm:gap-2 flex-nowrap shrink-0">
           <button
             type="button"
             onClick={onPause}
-            className="pointer-events-auto bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-1.5 rounded-xl font-black text-xs shadow-lg border-b-2 border-amber-700 active:scale-95 transition-transform cursor-pointer flex items-center gap-1.5"
+            className="pointer-events-auto bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 sm:px-3.5 py-1.5 rounded-xl font-black text-[11px] sm:text-xs shadow-lg border-b-2 border-amber-700 active:scale-95 transition-transform cursor-pointer flex items-center gap-1 whitespace-nowrap"
           >
             <span>START</span>
             <span className="text-[9px] font-bold opacity-80 hidden sm:inline">• MAPA</span>
@@ -452,7 +459,7 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             type="button"
             onClick={onOpenMissions}
-            className="pointer-events-auto relative bg-slate-950/85 hover:bg-slate-900 backdrop-blur-md text-amber-400 px-3 py-1.5 rounded-xl font-black text-xs shadow-lg border border-amber-500/40 active:scale-95 transition-transform cursor-pointer flex items-center gap-1"
+            className="pointer-events-auto relative bg-slate-950/85 hover:bg-slate-900 backdrop-blur-md text-amber-400 px-2.5 sm:px-3 py-1.5 rounded-xl font-black text-[11px] sm:text-xs shadow-lg border border-amber-500/40 active:scale-95 transition-transform cursor-pointer flex items-center gap-1 whitespace-nowrap"
           >
             <span>🎯</span>
             <span>MISSÕES</span>
@@ -466,7 +473,7 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             type="button"
             onClick={onOpenPhone}
-            className="pointer-events-auto bg-slate-950/85 hover:bg-slate-900 backdrop-blur-md text-emerald-400 px-3 py-1.5 rounded-xl font-black text-xs shadow-lg border border-emerald-500/40 active:scale-95 transition-transform cursor-pointer flex items-center gap-1"
+            className="pointer-events-auto bg-slate-950/85 hover:bg-slate-900 backdrop-blur-md text-emerald-400 px-2.5 sm:px-3 py-1.5 rounded-xl font-black text-[11px] sm:text-xs shadow-lg border border-emerald-500/40 active:scale-95 transition-transform cursor-pointer flex items-center gap-1 whitespace-nowrap"
           >
             <span>📱</span>
             <span>CELULAR</span>
@@ -474,7 +481,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* TOP RIGHT: COMPACT STREETS MINIMAP & LIVE DELIVERY PROGRESS BAR */}
-        <div className="pointer-events-auto flex flex-col items-end gap-1.5">
+        <div className="pointer-events-auto flex flex-col items-end gap-1 shrink-0">
           <MiniMap 
             playerX={telemetry.posX}
             playerZ={telemetry.posZ}
@@ -485,13 +492,14 @@ export const HUD: React.FC<HUDProps> = ({
             showShelters={telemetry.isSevereStorm}
           />
           {gameMode === 'career' && currentOrder && (
-            <div className="w-32 sm:w-36 bg-slate-950/85 backdrop-blur-md border border-white/15 rounded-xl px-2.5 py-1.5 shadow-xl">
-              <div className="flex items-center justify-between text-[9px] font-bold text-slate-200 mb-1">
-                <span className="truncate max-w-[82px]">
-                  {isPickup ? 'Coleta' : 'Entrega'}
+            <div className="w-36 sm:w-40 bg-slate-950/90 backdrop-blur-md border border-white/15 rounded-xl px-2.5 py-1.5 shadow-xl flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[9px] font-bold text-slate-200">
+                <span className="truncate max-w-[76px] flex items-center gap-1">
+                  <span>{currentOrder.icon}</span>
+                  <span>{isPickup ? 'Coleta' : 'Entrega'}</span>
                 </span>
                 <span className="font-mono tabular-nums text-emerald-400">
-                  {Math.max(0, Math.round(telemetry.distanceToTargetM))}m
+                  {Math.max(0, Math.round(telemetry.distanceToTargetM))}m • {currentOrder.timeRemainingSeconds}s
                 </span>
               </div>
               <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -506,6 +514,26 @@ export const HUD: React.FC<HUDProps> = ({
                   }}
                 />
               </div>
+              {/* Order type badges */}
+              {(currentOrder.isHot || currentOrder.isFragile || currentOrder.isUrgent) && (
+                <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                  {currentOrder.isHot && (
+                    <span className="px-1.5 py-0.5 rounded bg-orange-500/25 border border-orange-400/50 text-orange-300 text-[7px] font-black uppercase">
+                      🔥 Quente
+                    </span>
+                  )}
+                  {currentOrder.isFragile && (
+                    <span className="px-1.5 py-0.5 rounded bg-sky-500/25 border border-sky-400/50 text-sky-300 text-[7px] font-black uppercase">
+                      🍷 Frágil
+                    </span>
+                  )}
+                  {currentOrder.isUrgent && (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-500/25 border border-amber-400/50 text-amber-300 text-[7px] font-black uppercase">
+                      ⚡ Urgente
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {telemetry.isSevereStorm && (
@@ -568,9 +596,37 @@ export const HUD: React.FC<HUDProps> = ({
                         {deliveryCelebration.rating.toFixed(1)}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-300 font-medium truncate">
-                      {deliveryCelebration.icon} {deliveryCelebration.itemTitle} · {deliveryCelebration.customerName}
-                    </p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {(() => {
+                        const cname = deliveryCelebration.customerName || 'Cliente';
+                        let h = 0;
+                        for (let i = 0; i < cname.length; i++) h = (h * 31 + cname.charCodeAt(i)) >>> 0;
+                        const skins = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
+                        const shirts = ['#10b981', '#f97316', '#3b82f6', '#ec4899', '#eab308'];
+                        const hairs = ['#111827', '#451a03', '#92400e', '#dc2626'];
+                        const skin = skins[h % skins.length];
+                        const shirt = shirts[(h >> 3) % shirts.length];
+                        const hair = hairs[(h >> 6) % hairs.length];
+                        return (
+                          <span
+                            className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-emerald-400/60 shrink-0 overflow-hidden bg-slate-900"
+                            title={`Cliente: ${cname}`}
+                          >
+                            <svg viewBox="0 0 24 24" className="w-4 h-4">
+                              <path d="M4 22 C4 16 20 16 20 22 Z" fill={shirt} />
+                              <circle cx="12" cy="10" r="5" fill={skin} />
+                              <path d="M7 9 C7 5 17 5 17 9 Z" fill={hair} />
+                              <circle cx="10.3" cy="10" r="0.8" fill="#0f172a" />
+                              <circle cx="13.7" cy="10" r="0.8" fill="#0f172a" />
+                              <path d="M10 12.2 Q12 13.8 14 12.2" stroke="#0f172a" strokeWidth="1.1" fill="none" />
+                            </svg>
+                          </span>
+                        );
+                      })()}
+                      <p className="text-[11px] text-slate-200 font-semibold truncate">
+                        {deliveryCelebration.icon} {deliveryCelebration.itemTitle} · {deliveryCelebration.customerName}
+                      </p>
+                    </div>
                     <p className="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">
                       Frete R$ {deliveryCelebration.baseReward}
                       {deliveryCelebration.isNightBonus ? ' (+25% Noturno)' : ''} · Gorjeta R$ {deliveryCelebration.earnedTip}
@@ -638,8 +694,7 @@ export const HUD: React.FC<HUDProps> = ({
         )}
       </AnimatePresence>
 
-      {/* 2. CENTER AREA: COMPLETELY CLEAN (NO CLUTTERING TEXT BANNERS) */}
-      {/* Only transient screen damage flash */}
+      {/* 2. CENTER AREA: COMPLETELY CLEAN */}
       {crashFlash && (
         <div className="fixed inset-0 pointer-events-none z-30 border-8 border-rose-600/70 bg-rose-600/15 animate-pulse" />
       )}
@@ -647,54 +702,53 @@ export const HUD: React.FC<HUDProps> = ({
       {/* SEVERE STORM: TORRENTIAL RAIN & MIST VISOR EFFECT */}
       {telemetry.isSevereStorm && !telemetry.isSheltered && (
         <div className="fixed inset-0 pointer-events-none z-20 overflow-hidden">
-          {/* Edge vignette mist blur simulating rain-soaked helmet visor */}
           <div className="absolute inset-0 bg-radial from-transparent via-slate-950/20 to-slate-950/60" />
           <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-sky-950/40 to-transparent" />
           <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-sky-950/50 to-transparent" />
         </div>
       )}
 
-      {/* 3. BOTTOM AREA: SLIM TELEMETRY PILL & ERGONOMIC TOUCH CONTROLS */}
-      <div className="flex flex-col gap-2 w-full max-w-full">
+      {/* 3. BOTTOM AREA: SLIM TELEMETRY PILL & ELEVATED ERGONOMIC TOUCH CONTROLS */}
+      <div className="flex flex-col gap-1.5 w-full max-w-full pb-1 sm:pb-0">
         {/* SEVERE STORM CONTEXTUAL REAL-TIME ADVISORY CHIP */}
         {telemetry.isSevereStorm && (
           <div className="self-center flex items-center justify-center gap-2 pointer-events-auto max-w-full px-2">
             {telemetry.isSheltered ? (
-              <div className="bg-emerald-950/95 border border-emerald-400 text-emerald-200 px-3.5 py-1.5 rounded-2xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-2xl backdrop-blur-md animate-pulse">
-                <span className="text-sm">🛡️</span>
-                <span className="truncate">SOB ABRIGO: {telemetry.shelterName || 'POSTO / TÚNEL'} (PISTA SECA & CONTROLE 100%)</span>
+              <div className="bg-emerald-950/95 border border-emerald-400 text-emerald-200 px-3 py-1 rounded-2xl text-[9px] sm:text-xs font-black flex items-center gap-1.5 shadow-xl backdrop-blur-md">
+                <span>🛡️</span>
+                <span className="truncate">SOB ABRIGO: {telemetry.shelterName || 'POSTO / TÚNEL'}</span>
               </div>
             ) : telemetry.isAquaplaning ? (
-              <div className="bg-rose-950/95 border-2 border-rose-500 text-white px-3.5 py-1.5 rounded-2xl text-[10px] sm:text-xs font-black flex items-center gap-2 shadow-[0_0_25px_rgba(244,63,94,0.6)] backdrop-blur-md animate-bounce">
-                <span className="text-sm">⚠️</span>
-                <span className="truncate">AQUAPLANAGEM CRÍTICA! DESACELERE (&lt;35 KM/H) OU BUSQUE ABRIGO!</span>
+              <div className="bg-rose-950/95 border-2 border-rose-500 text-white px-3 py-1 rounded-2xl text-[9px] sm:text-xs font-black flex items-center gap-1.5 shadow-xl backdrop-blur-md animate-bounce">
+                <span>⚠️</span>
+                <span className="truncate">AQUAPLANAGEM! DESACELERE (&lt;35 KM/H)!</span>
               </div>
             ) : (
-              <div className="bg-amber-950/90 border border-amber-500/80 text-amber-200 px-3 py-1 rounded-2xl text-[9px] sm:text-[11px] font-black flex items-center gap-1.5 shadow-xl backdrop-blur-md">
-                <span className="text-xs">🌧️</span>
-                <span className="truncate">TEMPESTADE SEVERA: VELOCIDADE SEGURA • CUIDADO NAS CURVAS</span>
+              <div className="bg-amber-950/90 border border-amber-500/80 text-amber-200 px-2.5 py-0.5 rounded-2xl text-[9px] font-black flex items-center gap-1 shadow-xl backdrop-blur-md">
+                <span>🌧️</span>
+                <span className="truncate">TEMPESTADE: CUIDADO NAS CURVAS</span>
               </div>
             )}
           </div>
         )}
 
-        {/* ULTRA-SLIM ALL-IN-ONE TELEMETRY PILL */}
-        <div className="self-center flex items-center gap-1.5 sm:gap-2 pointer-events-auto max-w-full">
-          <div className="bg-slate-950/80 backdrop-blur-md border border-slate-700/60 rounded-full px-2.5 sm:px-3.5 py-1 sm:py-1.5 shadow-xl flex items-center gap-2 sm:gap-2.5">
+        {/* ULTRA-SLIM ALL-IN-ONE TELEMETRY PILL (Velocidade, Vida, Moto e Combustível) */}
+        <div className="self-center flex items-center gap-1.5 pointer-events-auto max-w-full flex-wrap justify-center">
+          <div className="bg-slate-950/90 backdrop-blur-md border border-slate-700/70 rounded-full px-3 sm:px-4 py-1 shadow-xl flex items-center gap-2">
             {/* Speed (KM/H) */}
             <div className="flex items-baseline gap-1">
-              <span className="text-sm sm:text-base font-black text-white tabular-nums font-mono leading-none">
+              <span className="text-xs sm:text-base font-black text-emerald-400 tabular-nums font-mono leading-none">
                 {telemetry.speedKmH}
               </span>
-              <span className="text-[8px] font-bold text-slate-400 uppercase">KM/H</span>
+              <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase">KM/H</span>
             </div>
 
-            <div className="h-3 w-px bg-slate-700/60" />
+            <div className="h-2.5 w-px bg-slate-700/60" />
 
             {/* Motoboy Life Bar */}
-            <div className="flex items-center gap-1.5" title="Vida do Motoboy">
-              <span className="text-[11px] leading-none">💚</span>
-              <div className="w-14 sm:w-18 h-2 bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/40">
+            <div className="flex items-center gap-1" title="Vida do Motoboy">
+              <span className="text-[10px] leading-none">💚</span>
+              <div className="w-10 sm:w-16 h-1.5 sm:h-2 bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/40">
                 <div
                   className={`h-full rounded-full transition-all duration-150 ${
                     (telemetry.playerHealth ?? 100) > 40 ? 'bg-emerald-400' : 'bg-rose-500'
@@ -704,13 +758,13 @@ export const HUD: React.FC<HUDProps> = ({
               </div>
             </div>
 
-            {/* Motorcycle Shield Bar (Riding mode only) */}
+            {/* Motorcycle Shield & Fuel Bar (Riding mode only) */}
             {!telemetry.isOnFoot && (
               <>
-                <div className="h-3 w-px bg-slate-700/60" />
+                <div className="h-2.5 w-px bg-slate-700/60" />
                 <div className="flex items-center gap-1" title="Integridade da Moto">
-                  <span className="text-[11px] leading-none">🏍️</span>
-                  <div className="w-12 sm:w-16 h-2 bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/40">
+                  <span className="text-[10px] leading-none">🏍️</span>
+                  <div className="w-10 sm:w-14 h-1.5 sm:h-2 bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/40">
                     <div
                       className={`h-full rounded-full transition-all duration-150 ${
                         (telemetry.bikeHealth ?? 100) > 40 ? 'bg-sky-400' : 'bg-amber-500'
@@ -719,74 +773,99 @@ export const HUD: React.FC<HUDProps> = ({
                     />
                   </div>
                 </div>
+
+                <div className="h-2.5 w-px bg-slate-700/60" />
+                <div className="flex items-center gap-1" title="Combustível da Moto">
+                  <span className="text-[10px] leading-none">⛽</span>
+                  <div className="w-10 sm:w-14 h-1.5 sm:h-2 bg-slate-800/90 rounded-full overflow-hidden p-0.5 border border-slate-700/40">
+                    <div
+                      className={`h-full rounded-full transition-all duration-150 ${
+                        (telemetry.fuelPct ?? 100) > 25 ? 'bg-amber-400' : 'bg-rose-500 animate-pulse'
+                      }`}
+                      style={{ width: `${telemetry.fuelPct ?? 100}%` }}
+                    />
+                  </div>
+                </div>
               </>
             )}
 
-            {/* Contextual mini badges (Police, Grau, Nitro, Bandit, Rival) */}
+            {/* Contextual mini badges (Police, Grau, Nitro, Drift, Bandit, Rival) */}
             {(telemetry.policeWantedSeconds ?? 0) > 0 && (
-              <span className="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-1 shadow">
+              <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-0.5 shadow">
                 <span>🚨</span>
                 <span>{telemetry.policeWantedSeconds}s</span>
               </span>
             )}
 
             {telemetry.isWheelie && (
-              <span className="bg-amber-500 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                <Flame className="w-3 h-3 fill-slate-950" />
+              <span className="bg-amber-500 text-slate-950 text-[8px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                <Flame className="w-2.5 h-2.5 fill-slate-950" />
                 <span>GRAU</span>
               </span>
             )}
 
+            {telemetry.isSkidding && !telemetry.isOnFoot && (
+              <span className="bg-orange-500 text-slate-950 text-[8px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                <span>💨</span>
+                <span>DRIFT</span>
+              </span>
+            )}
+
             {telemetry.isNitroActive && !telemetry.isOnFoot && (
-              <span className="bg-cyan-400 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-0.5">
-                <Zap className="w-3 h-3 fill-slate-950" />
+              <span className="bg-cyan-400 text-slate-950 text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-0.5">
+                <Zap className="w-2.5 h-2.5 fill-slate-950" />
                 <span>TURBO</span>
               </span>
             )}
 
             {(telemetry.nearestBanditDistM ?? 999) < 140 && (
-              <span className="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-0.5">
+              <span className="bg-rose-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse flex items-center gap-0.5 whitespace-nowrap">
                 <span>🔫</span>
                 <span>{telemetry.nearestBanditDistM}m</span>
               </span>
             )}
 
             {telemetry.canHijackRival && (
-              <span className="bg-yellow-400 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-full animate-bounce flex items-center gap-0.5">
+              <span className="bg-yellow-400 text-slate-950 text-[8px] font-black px-1.5 py-0.5 rounded-full animate-bounce flex items-center gap-0.5">
                 <span>🔥</span>
                 <span>RIVAL</span>
               </span>
             )}
 
             {telemetry.isSheltered && (
-              <span className="bg-emerald-500 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
+              <span className="bg-emerald-500 text-slate-950 text-[8px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
                 <span>🛡️</span>
                 <span>ABRIGO</span>
               </span>
             )}
-
-            {telemetry.isAquaplaning && (
-              <span className="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full animate-bounce flex items-center gap-0.5 shadow">
-                <span>🌊</span>
-                <span>DESLIZANDO</span>
-              </span>
-            )}
           </div>
 
-          {/* Quick Repair Button only when bike is critically damaged */}
-          {(telemetry.bikeHealth ?? 100) < 40 && !telemetry.isOnFoot && gameMode === 'career' && onRepairBike && (
+          {/* Quick Refuel Button when fuel is below 50% */}
+          {(telemetry.fuelPct ?? 100) < 50 && !telemetry.isOnFoot && gameMode === 'career' && onRefuelBike && (
+            <button
+              type="button"
+              onClick={onRefuelBike}
+              className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 border border-white rounded-full px-2.5 py-1 shadow-xl text-[8px] font-black flex items-center gap-1 cursor-pointer animate-pulse"
+            >
+              <span>⛽</span>
+              <span>Abastecer R$15</span>
+            </button>
+          )}
+
+          {/* Quick Repair Button when bike is damaged */}
+          {(telemetry.bikeHealth ?? 100) < 50 && !telemetry.isOnFoot && gameMode === 'career' && onRepairBike && (
             <button
               type="button"
               onClick={onRepairBike}
-              className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white border border-rose-300 rounded-full px-2.5 py-1 shadow-xl text-[9px] font-black flex items-center gap-1 cursor-pointer animate-bounce"
+              className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white border border-rose-300 rounded-full px-2.5 py-1 shadow-xl text-[8px] font-black flex items-center gap-1 cursor-pointer animate-bounce"
             >
-              <Wrench className="w-3 h-3" />
+              <Wrench className="w-2.5 h-2.5" />
               <span>Conserto R$20</span>
             </button>
           )}
         </div>
 
-        {/* 4. CONTROLS ROW */}
+        {/* 4. CONTROLS ROW — ELEVATED & COMPACT SO 100% VISIBLE ABOVE MOBILE NAV BAR */}
         {telemetry.isOnFoot ? (
           /* ========================================================================= */
           /* ON-FOOT MODE: GESTURE WALKING SURFACE (LEFT) + CLEAN ACTION BUTTONS (RIGHT) */
@@ -795,31 +874,30 @@ export const HUD: React.FC<HUDProps> = ({
             {/* UNIFIED ON-FOOT JOYSTICK (Bolinha) */}
             <div
               data-hud-control="true"
-              className="pointer-events-auto flex items-center p-2"
+              className="pointer-events-auto flex items-center"
             >
               <div
                 data-hud-control="true"
-                className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-slate-950/85 backdrop-blur-md border-2 border-emerald-400 shadow-2xl flex items-center justify-center select-none touch-none cursor-pointer"
+                className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-slate-950/85 backdrop-blur-md border-2 border-emerald-400 shadow-2xl flex items-center justify-center select-none touch-none cursor-pointer"
                 onPointerDown={handleGesturePointerDown}
                 onPointerMove={handleGesturePointerMove}
                 onPointerUp={handleGesturePointerUp}
                 onPointerCancel={handleGesturePointerUp}
               >
-                {/* Visual guidelines */}
-                <div className="absolute inset-4 rounded-full border border-white/5 bg-slate-900/40 shadow-inner pointer-events-none" />
-                <div className="absolute inset-x-8 h-px bg-emerald-500/20 pointer-events-none" />
-                <div className="absolute inset-y-8 w-px bg-emerald-500/20 pointer-events-none" />
+                <div className="absolute inset-3 rounded-full border border-white/5 bg-slate-900/40 shadow-inner pointer-events-none" />
+                <div className="absolute inset-x-6 h-px bg-emerald-500/20 pointer-events-none" />
+                <div className="absolute inset-y-6 w-px bg-emerald-500/20 pointer-events-none" />
                 
-                <span className="absolute top-2 text-[7px] font-black text-emerald-400/60 uppercase tracking-[0.2em]">DIREÇÃO</span>
-                <span className="absolute bottom-2 text-[7px] font-black text-slate-500">
-                  {gestureState.isSprint ? '⚡ CORRENDO' : '🚶 ANDANDO'}
+                <span className="absolute top-1.5 text-[6px] font-black text-emerald-400/70 uppercase tracking-widest">DIREÇÃO</span>
+                <span className="absolute bottom-1.5 text-[6px] font-black text-slate-400">
+                  {gestureState.isSprint ? '⚡ CORRER' : '🚶 ANDAR'}
                 </span>
 
                 {/* The Bolinha (Joystick Knob) */}
                 <div
-                  className={`w-14 h-14 rounded-full border-2 shadow-2xl flex items-center justify-center transition-transform pointer-events-none ${
+                  className={`w-11 h-11 sm:w-13 sm:h-13 rounded-full border-2 shadow-2xl flex items-center justify-center transition-transform pointer-events-none ${
                     gestureState.active
-                      ? 'bg-emerald-500 border-white shadow-emerald-400/50 scale-110'
+                      ? 'bg-emerald-500 border-white shadow-emerald-400/50 scale-105'
                       : 'bg-slate-800 border-emerald-500/40'
                   }`}
                   style={{
@@ -828,13 +906,14 @@ export const HUD: React.FC<HUDProps> = ({
                       : 'translate(0px, 0px)',
                   }}
                 >
-                  <div className={`w-4 h-4 rounded-full transition-all ${gestureState.active ? 'bg-white scale-125' : 'bg-emerald-400/50'}`} />
+                  <div className={`w-3.5 h-3.5 rounded-full transition-all ${gestureState.active ? 'bg-white scale-110' : 'bg-emerald-400/50'}`} />
                 </div>
               </div>
             </div>
-            {/* RIGHT SIDE: ON-FOOT ACTION CHIPS (Pular, Soco, Empurrar, Xingar, Montar) */}
-            <div className="pointer-events-auto flex flex-col items-end gap-2 pr-1 pb-1 z-20">
-              <div className="flex items-center gap-1.5">
+
+            {/* RIGHT SIDE: ON-FOOT ACTION CHIPS (Pular, Soco, Empurrar, Especial, Xingar, Montar) */}
+            <div className="pointer-events-auto flex flex-col items-end gap-1.5 z-20">
+              <div className="flex items-center gap-1 sm:gap-1.5">
                 {/* PULAR (Space) */}
                 <button
                   type="button"
@@ -848,11 +927,11 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('jump', onTriggerJump);
                   }}
-                  className="w-12 h-12 rounded-2xl bg-sky-600/90 hover:bg-sky-500 active:scale-95 border-2 border-sky-300/80 text-white flex flex-col items-center justify-center shadow-xl cursor-pointer select-none touch-none"
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-sky-600/90 hover:bg-sky-500 active:scale-95 border-2 border-sky-300/80 text-white flex flex-col items-center justify-center shadow-xl cursor-pointer select-none touch-none"
                   title="Pular"
                 >
-                  <span className="text-base leading-none">🦘</span>
-                  <span className="text-[7px] font-black mt-0.5 tracking-wider">PULAR</span>
+                  <span className="text-sm leading-none">🦘</span>
+                  <span className="text-[7px] font-black mt-0.5">PULAR</span>
                 </button>
 
                 {/* SOCO (J) */}
@@ -868,11 +947,11 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('punch', () => onTriggerMelee?.('punch'));
                   }}
-                  className="w-12 h-12 rounded-2xl bg-rose-600/90 hover:bg-rose-500 active:scale-95 border-2 border-rose-300/80 text-white flex flex-col items-center justify-center shadow-xl cursor-pointer select-none touch-none"
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-rose-600/90 hover:bg-rose-500 active:scale-95 border-2 border-rose-300/80 text-white flex flex-col items-center justify-center shadow-xl cursor-pointer select-none touch-none"
                   title="Soco"
                 >
-                  <span className="text-base leading-none">🥊</span>
-                  <span className="text-[7px] font-black mt-0.5 tracking-wider">SOCO</span>
+                  <span className="text-sm leading-none">🥊</span>
+                  <span className="text-[7px] font-black mt-0.5">SOCO</span>
                 </button>
 
                 {/* EMPURRÃO (K) */}
@@ -888,11 +967,11 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('push', () => onTriggerMelee?.('push'));
                   }}
-                  className="w-12 h-12 rounded-2xl bg-amber-500/90 hover:bg-amber-400 active:scale-95 border-2 border-white/90 text-slate-950 flex flex-col items-center justify-center shadow-xl cursor-pointer select-none touch-none"
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-amber-500/90 hover:bg-amber-400 active:scale-95 border-2 border-white/90 text-slate-950 flex flex-col items-center justify-center shadow-xl cursor-pointer select-none touch-none"
                   title="Empurrar"
                 >
-                  <span className="text-base leading-none">👐</span>
-                  <span className="text-[7px] font-black mt-0.5 tracking-wider">EMPURRÃO</span>
+                  <span className="text-sm leading-none">👐</span>
+                  <span className="text-[6px] font-black mt-0.5">EMPURRAR</span>
                 </button>
 
                 {/* GOLPE ESPECIAL / FATALITY (L) */}
@@ -908,11 +987,11 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('special', () => onTriggerSpecial?.());
                   }}
-                  className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-yellow-500 via-amber-400 to-red-600 hover:brightness-110 active:scale-95 border-2 border-white text-slate-950 flex flex-col items-center justify-center shadow-2xl cursor-pointer select-none touch-none animate-pulse"
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-yellow-500 via-amber-400 to-red-600 hover:brightness-110 active:scale-95 border-2 border-white text-slate-950 flex flex-col items-center justify-center shadow-2xl cursor-pointer select-none touch-none animate-pulse"
                   title="Golpe Especial (Fatality)"
                 >
-                  <span className="text-base leading-none">⚡</span>
-                  <span className="text-[6px] font-black mt-0.5 tracking-wider">ESPECIAL</span>
+                  <span className="text-sm leading-none">⚡</span>
+                  <span className="text-[6px] font-black mt-0.5">ESPECIAL</span>
                 </button>
               </div>
 
@@ -930,10 +1009,10 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('taunt', onTriggerTaunt);
                   }}
-                  className="h-10 px-2.5 rounded-2xl bg-orange-600/90 hover:bg-orange-500 active:scale-95 border border-orange-300 text-white flex items-center gap-1 shadow-lg cursor-pointer select-none touch-none"
+                  className="h-9 px-2.5 rounded-xl bg-orange-600/90 hover:bg-orange-500 active:scale-95 border border-orange-300 text-white flex items-center gap-1 shadow-lg cursor-pointer select-none touch-none"
                   title="Xingar"
                 >
-                  <span className="text-sm leading-none">🤬</span>
+                  <span className="text-xs leading-none">🤬</span>
                   <span className="text-[8px] font-black">XINGAR</span>
                 </button>
 
@@ -950,7 +1029,7 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('mount', onToggleMount);
                   }}
-                  className={`h-11 px-3.5 rounded-2xl border-2 flex items-center gap-1.5 shadow-2xl cursor-pointer active:scale-95 transition-all select-none touch-none ${
+                  className={`h-9 px-3 rounded-xl border-2 flex items-center gap-1.5 shadow-2xl cursor-pointer active:scale-95 transition-all select-none touch-none ${
                     telemetry.canHijackRival
                       ? 'bg-amber-400 border-white text-slate-950 animate-bounce'
                       : telemetry.isOwnBikeStolen
@@ -960,17 +1039,17 @@ export const HUD: React.FC<HUDProps> = ({
                       : 'bg-emerald-500 border-white text-slate-950 hover:bg-emerald-400'
                   }`}
                 >
-                  <span className="text-base leading-none">
+                  <span className="text-sm leading-none">
                     {telemetry.canHijackRival ? '🔥' : '🏍️'}
                   </span>
-                  <span className="text-[9px] font-black">
+                  <span className="text-[8px] font-black whitespace-nowrap">
                     {telemetry.canHijackRival
                       ? 'TOMAR MOTO'
                       : telemetry.isOwnBikeStolen
                       ? 'MOTO ROUBADA'
                       : (telemetry.distToOwnBikeM ?? 0) > 75
                       ? `MOTO A ${telemetry.distToOwnBikeM}m`
-                      : 'MONTAR NA MOTO'}
+                      : 'SUBIR NA MOTO'}
                   </span>
                 </button>
               </div>
@@ -980,26 +1059,26 @@ export const HUD: React.FC<HUDProps> = ({
           /* ========================================================================= */
           /* MOTORCYCLE MODE: COMPACT TRANSLUCENT STEERING (LEFT) + PEDALS (RIGHT)     */
           /* ========================================================================= */
-          <div className="pointer-events-auto flex items-end justify-between w-full gap-2 pb-0.5">
+          <div className="pointer-events-auto flex items-end justify-between w-full gap-2">
             {/* LEFT THUMB ZONE: PRECISION VIRTUAL JOYSTICK FOR STEERING */}
             <div
               data-hud-control="true"
-              className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-slate-950/75 backdrop-blur-md border-2 border-slate-700/80 shadow-2xl flex items-center justify-center select-none touch-none cursor-pointer"
+              className="relative w-24 h-24 sm:w-30 sm:h-30 rounded-full bg-slate-950/75 backdrop-blur-md border-2 border-slate-700/80 shadow-2xl flex items-center justify-center select-none touch-none cursor-pointer shrink-0"
               onPointerDown={handleSteerPointerDown}
               onPointerMove={handleSteerPointerMove}
               onPointerUp={handleSteerPointerUp}
               onPointerCancel={handleSteerPointerUp}
             >
               {/* Crosshair guidelines */}
-              <div className="absolute inset-x-4 h-px bg-slate-700/60 pointer-events-none" />
-              <div className="absolute inset-y-4 w-px bg-slate-700/60 pointer-events-none" />
-              <span className="absolute left-2 text-[9px] font-black text-slate-400">◀</span>
-              <span className="absolute right-2 text-[9px] font-black text-slate-400">▶</span>
-              <span className="absolute top-1.5 text-[7px] font-black tracking-widest text-slate-500 uppercase">DIREÇÃO</span>
+              <div className="absolute inset-x-3 h-px bg-slate-700/60 pointer-events-none" />
+              <div className="absolute inset-y-3 w-px bg-slate-700/60 pointer-events-none" />
+              <span className="absolute left-1.5 text-[8px] font-black text-slate-400">◀</span>
+              <span className="absolute right-1.5 text-[8px] font-black text-slate-400">▶</span>
+              <span className="absolute top-1.5 text-[6px] font-black tracking-widest text-slate-400 uppercase">DIREÇÃO</span>
 
               {/* Floating Thumb Stick Knob */}
               <div
-                className={`w-12 h-12 rounded-full border-2 shadow-2xl flex items-center justify-center transition-transform pointer-events-none ${
+                className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 shadow-2xl flex items-center justify-center transition-transform pointer-events-none ${
                   steerKnob.active
                     ? 'bg-blue-600 border-white shadow-blue-500/80 scale-105'
                     : 'bg-slate-800 border-slate-500'
@@ -1010,14 +1089,14 @@ export const HUD: React.FC<HUDProps> = ({
                     : 'translate(0px, 0px)',
                 }}
               >
-                <div className={`w-4 h-4 rounded-full ${steerKnob.active ? 'bg-white' : 'bg-white/70'}`} />
+                <div className={`w-3.5 h-3.5 rounded-full ${steerKnob.active ? 'bg-white' : 'bg-white/70'}`} />
               </div>
             </div>
 
-            {/* RIGHT THUMB ZONE: QUICK CHIPS + ACCELERATOR / BRAKE PEDALS */}
-            <div className="flex flex-col items-end gap-1.5 shrink-0 max-w-[65vw]">
-              {/* Upper Compact Chips Row */}
-              <div className="flex items-center justify-end gap-1 flex-wrap max-w-[290px] sm:max-w-none">
+            {/* RIGHT THUMB ZONE: ERGONOMIC >=48PX TOUCH TARGETS WITH ZERO OVERLAP */}
+            <div className="flex flex-col items-end gap-1.5 shrink-0 max-w-[70vw]">
+              {/* Row 1: XINGAR, A PÉ, AUTO, BUZINA */}
+              <div className="flex items-center justify-end gap-1.5">
                 {/* XINGAR */}
                 <button
                   type="button"
@@ -1032,13 +1111,13 @@ export const HUD: React.FC<HUDProps> = ({
                     triggerOnce('taunt', onTriggerTaunt);
                   }}
                   title="Xingar (X)"
-                  className="h-7 sm:h-8 px-1.5 rounded-lg border bg-orange-600/90 hover:bg-orange-500 active:scale-95 border-orange-300 text-white flex items-center gap-1 shadow cursor-pointer select-none touch-none"
+                  className="min-h-[48px] min-w-[48px] px-2 rounded-xl border-2 bg-orange-600/95 hover:bg-orange-500 active:scale-95 border-orange-300 text-white flex flex-col items-center justify-center shadow-lg cursor-pointer select-none touch-none"
                 >
-                  <span className="text-[11px] leading-none">🤬</span>
-                  <span className="text-[6px] font-black">XINGAR</span>
+                  <span className="text-xs leading-none">🤬</span>
+                  <span className="text-[7px] font-black mt-0.5">XINGAR</span>
                 </button>
 
-                {/* DESCER DA MOTO (F) */}
+                {/* SAIR DA MOTO (F) */}
                 <button
                   type="button"
                   tabIndex={-1}
@@ -1053,11 +1132,11 @@ export const HUD: React.FC<HUDProps> = ({
                     if (autoGas) setAutoGas(false);
                     triggerOnce('mount', onToggleMount);
                   }}
-                  title="Descer da Moto (F)"
-                  className="h-7 sm:h-8 px-2.5 rounded-lg border-2 bg-amber-500 hover:bg-amber-400 border-white text-slate-950 flex items-center gap-1 shadow-lg cursor-pointer active:scale-95 select-none touch-none"
+                  title="Sair da Moto (F)"
+                  className="min-h-[48px] min-w-[48px] px-2 rounded-xl border-2 bg-amber-500 hover:bg-amber-400 border-white text-slate-950 flex flex-col items-center justify-center shadow-lg cursor-pointer active:scale-95 select-none touch-none"
                 >
-                  <span className="text-[11px] leading-none">🚶</span>
-                  <span className="text-[7px] font-black">DESCER</span>
+                  <span className="text-xs leading-none">🚶</span>
+                  <span className="text-[7px] font-black mt-0.5">A PÉ</span>
                 </button>
 
                 {/* AUTO-GAS */}
@@ -1071,56 +1150,62 @@ export const HUD: React.FC<HUDProps> = ({
                   }}
                   onClick={toggleAutoGas}
                   title="Piloto Automático"
-                  className={`h-7 sm:h-8 px-1.5 rounded-lg border text-[8px] font-black flex items-center gap-0.5 shadow cursor-pointer transition-all select-none touch-none ${
+                  className={`min-h-[48px] min-w-[48px] px-2 rounded-xl border-2 text-[7px] font-black flex flex-col items-center justify-center shadow-lg cursor-pointer transition-all select-none touch-none ${
                     autoGas
                       ? 'bg-emerald-400 border-white text-slate-950 scale-95'
-                      : 'bg-slate-950/80 border-slate-700 text-emerald-400'
+                      : 'bg-slate-950/90 border-emerald-500/60 text-emerald-400'
                   }`}
                 >
-                  {autoGas ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
-                  <span>AUTO</span>
+                  {autoGas ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                  <span className="mt-0.5">AUTO</span>
                 </button>
 
                 {/* BUZINA */}
                 <button
                   type="button"
                   {...bindHoldButton('horn')}
-                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border text-white flex items-center justify-center shadow cursor-pointer touch-none ${
+                  className={`min-h-[48px] min-w-[48px] rounded-xl border-2 text-white flex flex-col items-center justify-center shadow-lg cursor-pointer touch-none ${
                     activeInputs?.horn
                       ? 'bg-amber-500 border-amber-200 scale-95'
-                      : 'bg-slate-900/80 border-slate-700'
+                      : 'bg-slate-900/90 border-slate-700'
                   }`}
+                  title="Buzina (H)"
                 >
-                  <span className="text-[10px] leading-none">📢</span>
+                  <span className="text-xs leading-none">📢</span>
+                  <span className="text-[7px] font-black mt-0.5">BUZINA</span>
                 </button>
+              </div>
 
+              {/* Row 2: GRAU, NITRO, FAROL */}
+              <div className="flex items-center justify-end gap-1.5">
                 {/* GRAU */}
                 <button
                   type="button"
                   {...bindHoldButton('wheelie')}
-                  className={`h-7 sm:h-8 px-2 rounded-lg border text-white flex items-center gap-0.5 shadow cursor-pointer touch-none ${
+                  className={`min-h-[48px] min-w-[54px] px-2.5 rounded-xl border-2 text-white flex flex-col items-center justify-center shadow-lg cursor-pointer touch-none ${
                     activeInputs?.wheelie
                       ? 'bg-purple-500 border-purple-200 scale-95'
-                      : 'bg-purple-800/80 border-purple-500'
+                      : 'bg-purple-800/90 border-purple-400'
                   }`}
                 >
-                  <span className="text-[10px] leading-none">🔥</span>
-                  <span className="text-[7px] font-black">GRAU</span>
+                  <span className="text-xs leading-none">🔥</span>
+                  <span className="text-[8px] font-black mt-0.5">GRAU</span>
                 </button>
 
                 {/* NITRO */}
                 <button
                   type="button"
                   {...bindHoldButton('nitro')}
-                  className={`h-7 sm:h-8 px-2 rounded-lg border text-white flex items-center gap-0.5 shadow cursor-pointer touch-none ${
+                  className={`min-h-[48px] min-w-[54px] px-2.5 rounded-xl border-2 text-white flex flex-col items-center justify-center shadow-lg cursor-pointer touch-none ${
                     activeInputs?.nitro
                       ? 'bg-cyan-400 border-white text-slate-950 scale-95'
-                      : 'bg-cyan-700/80 border-cyan-400'
+                      : 'bg-cyan-700/90 border-cyan-400'
                   }`}
                 >
-                  <span className="text-[10px] leading-none">⚡</span>
-                  <span className="text-[7px] font-black">NITRO</span>
+                  <span className="text-xs leading-none">⚡</span>
+                  <span className="text-[8px] font-black mt-0.5">NITRO</span>
                 </button>
+
                 {/* FAROL */}
                 <button
                   type="button"
@@ -1134,47 +1219,47 @@ export const HUD: React.FC<HUDProps> = ({
                     e.stopPropagation();
                     triggerOnce('headlight', onToggleHeadlight);
                   }}
-                  className={`h-7 sm:h-8 px-2 rounded-lg border text-white flex items-center gap-0.5 shadow cursor-pointer select-none touch-none ${
+                  className={`min-h-[48px] min-w-[54px] px-2.5 rounded-xl border-2 text-white flex flex-col items-center justify-center shadow-lg cursor-pointer select-none touch-none ${
                     headlightOn
                       ? 'bg-amber-400 border-white text-slate-950 scale-95'
-                      : 'bg-slate-800/80 border-slate-600 text-slate-400'
+                      : 'bg-slate-800/90 border-slate-600 text-slate-300'
                   }`}
                   title="Ligar/Desligar Farol (L)"
                 >
-                  <span className="text-[10px] leading-none">💡</span>
-                  <span className="text-[7px] font-black">FAROL</span>
+                  <span className="text-xs leading-none">💡</span>
+                  <span className="text-[8px] font-black mt-0.5">FAROL</span>
                 </button>
               </div>
 
-              {/* Lower Pedals: FREIO + ACELERAR */}
+              {/* Row 3: Lower Pedals FREIO + ACELERAR (>=48px, Elevated & Full-Visibility on Mobile) */}
               <div data-hud-control="true" className="flex items-end gap-2">
                 <button
                   type="button"
                   data-hud-control="true"
                   {...bindHoldButton('backward', true)}
-                  className={`w-13 h-15 sm:w-16 sm:h-17 rounded-2xl border-2 text-white font-black flex flex-col items-center justify-center shadow-xl cursor-pointer transition-transform select-none touch-none ${
+                  className={`min-h-[54px] min-w-[68px] sm:w-20 sm:h-16 rounded-2xl border-2 text-white font-black flex flex-col items-center justify-center shadow-xl cursor-pointer transition-transform select-none touch-none ${
                     activeInputs?.backward
                       ? 'bg-rose-600 border-white scale-95 shadow-rose-500/60'
-                      : 'bg-rose-950/90 border-rose-700/80'
+                      : 'bg-rose-950/90 border-rose-500/80'
                   }`}
                 >
-                  <span className="text-sm">▼</span>
-                  <span className="text-[10px] font-bold tracking-tight">FREIO</span>
+                  <span className="text-xs leading-none">▼</span>
+                  <span className="text-[10px] font-black tracking-tight mt-0.5">FREIO</span>
                 </button>
 
                 <button
                   type="button"
                   data-hud-control="true"
                   {...bindHoldButton('forward')}
-                  className={`w-22 h-16 sm:w-26 sm:h-18 rounded-2xl border-2 font-black flex flex-col items-center justify-center shadow-2xl cursor-pointer transition-transform select-none touch-none ${
+                  className={`min-h-[56px] min-w-[104px] sm:w-28 sm:h-16 rounded-2xl border-2 font-black flex flex-col items-center justify-center shadow-2xl cursor-pointer transition-transform select-none touch-none ${
                     activeInputs?.forward || autoGas
                       ? 'bg-emerald-400 border-white text-slate-950 scale-95 shadow-emerald-500/60'
                       : 'bg-gradient-to-t from-emerald-700 to-emerald-500 border-emerald-300 text-white'
                   }`}
                 >
-                  <span className="text-base sm:text-lg leading-none">▲</span>
-                  <span className="text-xs sm:text-sm tracking-wide font-black mt-0.5">ACELERAR</span>
-                  <span className="text-[8px] opacity-90 font-bold">
+                  <span className="text-sm sm:text-base leading-none">▲</span>
+                  <span className="text-xs sm:text-sm tracking-wide font-black">ACELERAR</span>
+                  <span className="text-[7px] opacity-90 font-bold leading-none">
                     {autoGas ? '🔒 AUTO' : 'SEGURE'}
                   </span>
                 </button>
